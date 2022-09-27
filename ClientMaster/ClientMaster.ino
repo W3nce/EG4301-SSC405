@@ -50,12 +50,6 @@ static BLERemoteCharacteristic* humidityCharacteristic;
 const uint8_t notificationOn[] = {0x1, 0x0};
 const uint8_t notificationOff[] = {0x0, 0x0};
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-
-//Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-//Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
 //Variables to store temperature and humidity
 char* temperatureChar;
 char* humidityChar;
@@ -131,61 +125,8 @@ void printReadings(){
   Serial.printf("Humidity = %s /n",humidityChar);
 }
 
-/*void printReadings(){
-  
-  display.clearDisplay();  
-  // display temperature
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  display.print("Temperature: ");
-  display.setTextSize(2);
-  display.setCursor(0,10);
-  display.print(temperatureChar);
-  display.setTextSize(1);
-  display.cp437(true);
-  display.write(167);
-  display.setTextSize(2);
-  Serial.print("Temperature:");
-  Serial.print(temperatureChar);
-  #ifdef temperatureCelsius
-    //Temperature Celsius
-    display.print("C");
-    Serial.print("C");
-  #else
-    //Temperature Fahrenheit
-    display.print("F");
-    Serial.print("F");
-  #endif
-
-  //display humidity 
-  display.setTextSize(1);
-  display.setCursor(0, 35);
-  display.print("Humidity: ");
-  display.setTextSize(2);
-  display.setCursor(0, 45);
-  display.print(humidityChar);
-  display.print("%");
-  display.display();
-  Serial.print(" Humidity:");
-  Serial.print(humidityChar); 
-  Serial.println("%");
-}*/
 
 void setup() {
-  //OLED display setup
-  // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  /*if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
-    Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
-  }
-
-
-  display.clearDisplay(); 
-  display.setTextSize(2);
-  display.setTextColor(WHITE,0);
-  display.setCursor(0,25);
-  display.print("BLE Client");
-  display.display();*/
   
   //Start serial communication
   Serial.begin(115200);
@@ -223,7 +164,7 @@ void loop() {
   if (newTemperature && newHumidity){
     newTemperature = false;
     newHumidity = false;
-    //printReadings();
+    printReadings();
   }
   delay(1000); // Delay a second between loops.
 }
