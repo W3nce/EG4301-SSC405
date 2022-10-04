@@ -8,11 +8,14 @@
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
+#include <BLEAddress.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
+#include <WiFi.h>
+#include <string>
 
 //Default Temperature is in Celsius
 //Comment the next line for Temperature in Fahrenheit
@@ -20,6 +23,8 @@
 
 //BLE server name
 #define bleServerName "BME280_ESP32_SadServerSlave"
+//BLE server name 2
+//#define bleServerName "BME280_ESP32_SadServerSlave2"
 
 Adafruit_BME280 bme; // I2C
 
@@ -29,13 +34,15 @@ float hum;
 
 // Timer variables
 unsigned long lastTime = 0;
-unsigned long timerDelay = 5000;
+unsigned long timerDelay = 10000;
 
 bool deviceConnected = false;
 
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 #define SERVICE_UUID "91bad492-b950-4226-aa2b-4ede9fa42f59"
+
+//#define SERVICE_UUID2 "30880f64-4239-11ed-b878-0242ac120002"
 
 // Temperature Characteristic and Descriptor
 #ifdef temperatureCelsius
@@ -50,6 +57,7 @@ bool deviceConnected = false;
 BLECharacteristic bmeHumidityCharacteristics("ca73b3ba-39f6-4ab3-91ae-186dc9577d99", BLECharacteristic::PROPERTY_NOTIFY);
 BLEDescriptor bmeHumidityDescriptor(BLEUUID((uint16_t)0x2903));
 
+
 //Setup callbacks onConnect and onDisconnect
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
@@ -57,6 +65,8 @@ class MyServerCallbacks: public BLEServerCallbacks {
   };
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
+    pServer->getAdvertising()->start();
+    Serial.println("Persisiting Advertising for a client connection to notify...");
   }
 };
 
@@ -67,9 +77,15 @@ void initBME(){
   }
 }
 
+int show = 0;
+BLEServer *pServer;
+
 void setup() {
   // Start serial communication 
   Serial.begin(115200);
+  Serial.println();
+  Serial.print("ESP Board MAC Address:  ");
+  Serial.println(WiFi.macAddress());
 
   // Init BME Sensor
   initBME();
@@ -78,42 +94,50 @@ void setup() {
   BLEDevice::init(bleServerName);
 
   // Create the BLE Server
-  BLEServer *pServer = BLEDevice::createServer();
+  pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
   // Create the BLE Service
   BLEService *bmeService = pServer->createService(SERVICE_UUID);
 
+  std::string ServerAddress = BLEDevice::getAddress().toString();
+  std::string bmeTempDescriptor =  "_BME temperature Celsius";
+  std::string bmeTempDescriptorF = "_BME temperature Fahrenheit";
+  std::string bmeHumDescriptor = "_BME temperature Celsius";
+
   // Create BLE Characteristics and Create a BLE Descriptor
   // Temperature
   #ifdef temperatureCelsius
     bmeService->addCharacteristic(&bmeTemperatureCelsiusCharacteristics);
-    bmeTemperatureCelsiusDescriptor.setValue("BME temperature Celsius");
+    bmeTemperatureCelsiusDescriptor.setValue(bmeTempDescriptor);
     bmeTemperatureCelsiusCharacteristics.addDescriptor(new BLE2902());
   #else
     bmeService->addCharacteristic(&bmeTemperatureFahrenheitCharacteristics);
-    bmeTemperatureFahrenheitDescriptor.setValue("BME temperature Fahrenheit");
+    bmeTemperatureFahrenheitDescriptor.setValue(bmeTempDescriptorF);
     bmeTemperatureFahrenheitCharacteristics.addDescriptor(new BLE2902());
   #endif  
 
   // Humidity
   bmeService->addCharacteristic(&bmeHumidityCharacteristics);
-  bmeHumidityDescriptor.setValue("BME humidity");
+  bmeHumidityDescriptor.setValue(bmeHumDescriptor);
   bmeHumidityCharacteristics.addDescriptor(new BLE2902());
   
   // Start the service
   bmeService->start();
 
-  // Start advertising
+  // Start Temporary Advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pServer->getAdvertising()->start();
   Serial.println("Waiting a client connection to notify...");
 }
 
+
 void loop() {
   if (deviceConnected) {
+    show == 0;
     if ((millis() - lastTime) > timerDelay) {
+      Serial.println("Start Reading...");
       // Read temperature as Celsius (the default)
       temp = bme.readTemperature();
       // Fahrenheit
@@ -155,4 +179,6 @@ void loop() {
       lastTime = millis();
     }
   }
+  
+  
 }
