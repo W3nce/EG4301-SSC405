@@ -155,7 +155,7 @@ void loop() {
         bmeTemperatureCelsiusCharacteristics.notify();
         Serial.print("Temperature Celsius: ");
         Serial.print(temp);
-        Serial.print(" ºC");
+        Serial.print(" deg C");
       #else
         static char temperatureFTemp[6];
         dtostrf(tempF, 6, 2, temperatureFTemp);
