@@ -65,6 +65,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
   };
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
+    delay(1000);
     pServer->getAdvertising()->start();
     Serial.println("Persisiting Advertising for a client connection to notify...");
   }
