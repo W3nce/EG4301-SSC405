@@ -30,7 +30,6 @@ static BLEUUID temperatureCharacteristicUUID("f78ebbff-c8b7-4107-93de-889a6a06d4
 // Humidity Characteristic
 static BLEUUID humidityCharacteristicUUID("ca73b3ba-39f6-4ab3-91ae-186dc9577d99");
 
-
 static bool TurnOnScanResults = false;
 
 static const int DeviceUsedCount = 1;
@@ -117,7 +116,6 @@ static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteri
                                    uint8_t* pData, size_t length, bool isNotify) {
   Serial.println("[[Notification (HUM)]]");
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
-
   Serial.printf("Server (%s) Notified Humidity: ",ServerAddressStr.c_str());
   char*humidityChar = (char*)pData;
   std::string HumString = humidityChar;
@@ -125,7 +123,7 @@ static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteri
   Serial.print("-> Call setHumChar: ");
   MyClientServerManager->setHumChar(ServerAddressStr, HumString);
   Serial.println("");
-  }
+}
 
 
 
@@ -152,7 +150,6 @@ bool ClientServerManager::contains(std::string ServerStr) {  // Method/function 
   }
   return false;
 }
-
 
 bool ClientServerManager::contains(BLEAddress* Server) {  // Method/function defined inside the class
   Serial.print("Contains Server: @BLEAddress ");
@@ -183,7 +180,6 @@ bool ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) {  // Method/fun
       return false;
     }
     BLEAddress OtherServer = *ServerAddressList[i];
-
     if (AdvDev->getAddress().equals(OtherServer)) {
       Serial.println("true (Found)");
       return true;
@@ -211,9 +207,7 @@ void ClientServerManager::addDevice(BLEAdvertisedDevice* AdvDev) {
 }
 
 void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddress* AdvServerAdress) {
-
   Serial.println("[[ServerConnect]]");  
-
   Serial.printf("Attempting to connect: %s ", AdvDev->getName().c_str());
   Serial.printf("Server Address: %s \n", AdvServerAdress->toString().c_str());
 
@@ -237,9 +231,7 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
 
       // Obtain a reference to the service we are after in the remote BLE server.      
       Serial.print("Getting Remote Service: ");
-
       BLERemoteService* pRemoteService = pClient->getService(bmeServiceUUID);
-      Serial.println("Tried to get remote Service");
       if (pRemoteService == nullptr) {
         Serial.println("Failed to find our service UUID: ");
         Serial.println(bmeServiceUUID.toString().c_str());
@@ -251,7 +243,7 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
       // Obtain a reference to the characteristics in the service of the remote BLE server.
       BLERemoteCharacteristic* TempChar = pRemoteService->getCharacteristic(temperatureCharacteristicUUID);
       BLERemoteCharacteristic* HumChar = pRemoteService->getCharacteristic(humidityCharacteristicUUID);
-
+      
       if (TempChar == nullptr || HumChar == nullptr) {
         Serial.println("Failed to find our characteristic UUID\n");
         pClient->disconnect();
@@ -345,7 +337,6 @@ void ClientServerManager::setTempChar(std::string Server, std::string Value) {  
 }
 
 void ClientServerManager::setHumChar(std::string Server, std::string Value) {  // Method/function defined inside the class
-
   Serial.printf("Setting Hum Char for Server(%s): \n",Server.c_str());
   Serial.print("First Server: ");
   for (int i = 0; i < sizelimit; i++) {
@@ -476,7 +467,6 @@ void loop() {
     rescan(pBLEScan, waittime);
   }
   MyClientServerManager->tryConnect();
-
   MyClientServerManager->printReadings();
   delay(10000);  // Delay a second between loops.
 }
