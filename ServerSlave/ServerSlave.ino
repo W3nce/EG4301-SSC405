@@ -14,7 +14,6 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
-#include <WiFi.h>
 #include <string>
 
 //Default Temperature is in Celsius
@@ -22,9 +21,9 @@
 #define temperatureCelsius
 
 //BLE server name
-#define bleServerName "BME280_ESP32_SadServerSlave"
+#define bleServerName "Child_1"
 //BLE server name 2
-//#define bleServerName "BME280_ESP32_SadServerSlave2"
+//#define bleServerName "Child_1"
 
 Adafruit_BME280 bme; // I2C
 
@@ -84,9 +83,6 @@ BLEServer *pServer;
 void setup() {
   // Start serial communication 
   Serial.begin(115200);
-  Serial.println();
-  Serial.print("ESP Board MAC Address:  ");
-  Serial.println(WiFi.macAddress());
 
   // Init BME Sensor
   initBME();
