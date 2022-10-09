@@ -21,7 +21,7 @@
 #define temperatureCelsius
 
 //BLE server name
-#define bleServerName "Child_1"
+std::string bleServerName = "Child_1";
 //BLE server name 2
 //#define bleServerName "Child_1"
 
@@ -33,7 +33,9 @@ float hum;
 
 // Timer variables
 unsigned long lastTime = 0;
-unsigned long timerDelay = 10000;
+
+//Logging Checking Interval
+unsigned long loggingInterval = 10000;
 
 bool deviceConnected = false;
 
@@ -126,6 +128,8 @@ void setup() {
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
   pServer->getAdvertising()->start();
+
+  Serial.printf("Server Name: %s \n",bleServerName.c_str());
   Serial.println("Waiting a client connection to notify...");
 }
 
@@ -133,7 +137,7 @@ void setup() {
 void loop() {
   if (deviceConnected) {
     show == 0;
-    if ((millis() - lastTime) > timerDelay) {
+    if ((millis() - lastTime) > loggingInterval) {
       Serial.println("Start Reading...");
       // Read temperature as Celsius (the default)
       temp = bme.readTemperature();
