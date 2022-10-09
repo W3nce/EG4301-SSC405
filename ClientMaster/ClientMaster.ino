@@ -9,15 +9,14 @@
 #include "BLEAdvertisedDevice.h"
 #include <Wire.h>
 #include <cstring>
-//#include <ArduinoTrace.h>
 #define temperatureCelsius
 
-#define bleServerName "BME280_ESP32_SadServerSlave"
-#define bleServerName2 "BME280_ESP32_SadServerSlave2"
+//#define bleServerName "BME280_ESP32_SadServerSlave"
+//#define bleServerName2 "BME280_ESP32_SadServerSlave2"
 
-std::string bleServerNameCheck = "BME280_ESP32_SadServerSlave";
+//std::string bleServerNameCheck = "BME280_ESP32_SadServerSlave";
 static BLEUUID bmeServiceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");
-static BLEUUID bmeServiceUUID2("30880f64-4239-11ed-b878-0242ac120002");
+//static BLEUUID bmeServiceUUID2("30880f64-4239-11ed-b878-0242ac120002");
 
 #ifdef temperatureCelsius
 //Temperature Celsius Characteristic
@@ -40,11 +39,6 @@ static BLEScan* pBLEScan;
 //Activate notify
 const uint8_t notificationOn[] = { 0x1, 0x0 };
 const uint8_t notificationOff[] = { 0x0, 0x0 };
-
-
-//Flags to check whether new temperature and humidity readings are available
-boolean newTemperature = false;
-boolean newHumidity = false;
 
 //Connect to the BLE Server that has the name, Service, and Characteristics
 // Should take in Server Address, and save charaterstitics after confirm exist and reg for notify
@@ -407,7 +401,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
         switchprintln("[[SCAN]]",TurnOnScanResults);    
         switchprintln("BLE Advertised Device found: ",TurnOnScanResults);
         switchprintln(advertisedDevice.toString().c_str(),TurnOnScanResults);
-      if (advertisedDevice.getName() == bleServerNameCheck && advertisedDevice.haveServiceUUID() && advertisedDevice.getServiceUUID().equals(bmeServiceUUID)) {
+      if (advertisedDevice.haveServiceUUID() && advertisedDevice.getServiceUUID().equals(bmeServiceUUID)) {
          //Scan can be stopped, we found what we are looking for
         //create pointer of advdev addDevice(BLEAdvertisedDevice* AdvDev)
         BLEAdvertisedDevice * NewDev = new BLEAdvertisedDevice(advertisedDevice);
