@@ -14,14 +14,26 @@
 #include <WiFiMulti.h>
 #include <cstring>
 //#include <ArduinoTrace.h>
+
+
+// Libraries to get time from NTP Server
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+
+#define LEAP_YEAR(Y)     ( (Y>0) && !(Y%4) && ( (Y%100) || !(Y%400) ) )
+
 #define temperatureCelsius
 
 #define bleServerName "BME280_ESP32_SadServerSlave"
-#define bleServerName2 "BME280_ESP32_SadServerSlave2"
+//#define bleServerName2 "BME280_ESP32_SadServerSlave2"
 
-std::string bleServerNameCheck = "BME280_ESP32_SadServerSlave";
+std::string bleServerNameCheck = "Child_1";
 static BLEUUID bmeServiceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");
-static BLEUUID bmeServiceUUID2("30880f64-4239-11ed-b878-0242ac120002");
+//static BLEUUID bmeServiceUUID2("30880f64-4239-11ed-b878-0242ac120002");
+
+static bool TurnOnScanResults = false;
+
+static const int DeviceUsedCount = 1;
 
 #ifdef temperatureCelsius
 //Temperature Celsius Characteristic
@@ -35,10 +47,6 @@ static BLEUUID temperatureCharacteristicUUID("f78ebbff-c8b7-4107-93de-889a6a06d4
 static BLEUUID humidityCharacteristicUUID("ca73b3ba-39f6-4ab3-91ae-186dc9577d99");
 
 
-static bool TurnOnScanResults = false;
-
-static const int DeviceUsedCount = 1;
-
 //Scan Object Pointer
 static BLEScan* pBLEScan;
 
@@ -46,14 +54,24 @@ static BLEScan* pBLEScan;
 const uint8_t notificationOn[] = { 0x1, 0x0 };
 const uint8_t notificationOff[] = { 0x0, 0x0 };
 
+// Replace with your network credentials "NOKIA-7480", "gyL9AJUiLd"
+/*const char* ssid     = "NOKIA-7480";
+const char* password = "gyL9AJUiLd";*/
+/*
+const char* ssid     = "SINGTEL-A458";
+const char* password = "quoophuuth";*/
 
-//Flags to check whether new temperature and humidity readings are available
-boolean newTemperature = false;
-boolean newHumidity = false;
+const char* ssid     = "Terence";
+const char* password = "qwertyios";
 
-//Connect to the BLE Server that has the name, Service, and Characteristics
-// Should take in Server Address, and save charaterstitics after confirm exist and reg for notify
+// Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP);
 
+// Variables to save date and time
+String formattedDate;
+String dayStamp;
+String timeStamp;
 
 std::string boolString(bool b) {
   if (b) {
@@ -75,6 +93,7 @@ class ClientServerManager {
   bool HumidityCharNotifyList[sizelimit] = { false };
   std::string TemperatureCharList[sizelimit];
   std::string HumidityCharList[sizelimit];
+  String DateTimeList[sizelimit];
 
 public:
   int getNumberofClientServer();
@@ -85,8 +104,8 @@ public:
   void connectToServer(BLEAdvertisedDevice* AdvDev,BLEAddress* AdvServerAdress);
   void tryConnect();
   bool check();
-  void setTempChar(std::string Server, std::string Value);
-  void setHumChar(std::string Server, std::string Value);
+  void setTempChar(std::string Server, std::string Value, String DateTimeString);
+  void setHumChar(std::string Server, std::string Value, String DateTimeString);
   void printReadings();
 };
 
@@ -102,24 +121,76 @@ class MyClientCallback : public BLEClientCallbacks {
   }
 };
 
+String getFormattedDate() {
+  unsigned long rawTime = timeClient.getEpochTime() / 86400L;  // in days
+  unsigned long days = 0, year = 1970;
+  uint8_t month;
+  static const uint8_t monthDays[]={31,28,31,30,31,30,31,31,30,31,30,31};
+
+  while((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime)
+    year++;
+  rawTime -= days - (LEAP_YEAR(year) ? 366 : 365); // now it is days in this year, starting at 0
+  days=0;
+  for (month=0; month<12; month++) {
+    uint8_t monthLength;
+    if (month==1) { // february
+      monthLength = LEAP_YEAR(year) ? 29 : 28;
+    } else {
+      monthLength = monthDays[month];
+    }
+    if (rawTime < monthLength) break;
+    rawTime -= monthLength; 
+  }
+  String monthStr = ++month < 10 ? "0" + String(month) : String(month); // jan is month 1  
+  String dayStr = ++rawTime < 10 ? "0" + String(rawTime) : String(rawTime); // day of month  
+  return String(year) + "-" + monthStr + "-" + dayStr + "T" + timeClient.getFormattedTime() + "Z";
+}
+
+// Function to get date and time from NTPClient
+String getTimeStamp() {
+  while(!timeClient.update()) {
+    timeClient.forceUpdate();
+  }
+  // The formattedDate comes with the following format:
+  // 2018-05-28T16:00:13Z
+  // We need to extract date and time
+  String formattedDate = getFormattedDate();
+  //Serial.println(formattedDate);
+
+  // Extract date
+  int splitT = formattedDate.indexOf("T");
+  String dayStamp = formattedDate.substring(0, splitT);
+  //Serial.println(dayStamp);
+  // Extract time
+  String timeStamp = formattedDate.substring(splitT+1, formattedDate.length()-1);
+  //Serial.println(timeStamp);
+}
 //When the BLE Server sends a new temperature reading with the notify property
 static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,
                                       uint8_t* pData, size_t length, bool isNotify) {  
-  Serial.println("[[Notification (TEMP)]]");
+  timeClient.update();
+  Serial.print("[[Notification (TEMP)]] @ ");
+  String DateTimeString = getFormattedDate();
+  Serial.println(DateTimeString);
+
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
   Serial.printf("Server (%s) Notified Temperature: ",ServerAddressStr.c_str());
   char*temperatureChar = (char*)pData;
   std::string TempString = temperatureChar;
   Serial.printf("Temperature: %s C \n",TempString.c_str());
   Serial.print("-> Call setTempChar: ");
-  MyClientServerManager->setTempChar(ServerAddressStr, TempString);
+  MyClientServerManager->setTempChar(ServerAddressStr, TempString,DateTimeString);
   Serial.println("");
 }
 
 //When the BLE Server sends a new humidity reading with the notify property
 static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,
                                    uint8_t* pData, size_t length, bool isNotify) {
-  Serial.println("[[Notification (HUM)]]");
+  timeClient.update();
+  Serial.print("[[Notification (HUM)]] @ ");
+  String DateTimeString = getFormattedDate();
+  Serial.println(DateTimeString);
+  
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
 
   Serial.printf("Server (%s) Notified Humidity: ",ServerAddressStr.c_str());
@@ -127,7 +198,7 @@ static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteri
   std::string HumString = humidityChar;
   Serial.printf("Humidity: %s %% \n",HumString.c_str());
   Serial.print("-> Call setHumChar: ");
-  MyClientServerManager->setHumChar(ServerAddressStr, HumString);
+  MyClientServerManager->setHumChar(ServerAddressStr, HumString,DateTimeString);
   Serial.println("");
   }
 
@@ -301,7 +372,7 @@ void ClientServerManager::tryConnect() {
     
     Serial.print("Check Connected: ");
     if (!CharReadyList[i]) {
-      Serial.println("Not Connected proceed -> \n");
+      Serial.println("Not Connected Proceed -> \n");
       connectToServer(ConnectedAdvDevList[i],ServerAddressList[i]);    
       Serial.println("");        
       Serial.print("Next Server: ");   
@@ -325,7 +396,7 @@ bool ClientServerManager::check() {
   }
 }
 
-void ClientServerManager::setTempChar(std::string Server, std::string Value) {  // Method/function defined inside the class
+void ClientServerManager::setTempChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
   Serial.printf("Setting Temp Char for Server(%s): \n",Server.c_str());
   Serial.print("First Server: ");
   for (int i = 0; i < sizelimit; i++) {
@@ -337,7 +408,8 @@ void ClientServerManager::setTempChar(std::string Server, std::string Value) {  
     Serial.printf("Checking Target Address (%s) : ",SavedServer.c_str());
     if (strcmp(SavedServer.c_str(), Server.c_str())==0) {
       TemperatureCharList[i] = Value;
-      TemperatureCharNotifyList[i] = true;      
+      TemperatureCharNotifyList[i] = true;    
+      DateTimeList[i] = DateTimeString;   
       Serial.println("Success: TempChar Set for Print");
       return;
     }    else{
@@ -348,7 +420,7 @@ void ClientServerManager::setTempChar(std::string Server, std::string Value) {  
   return;
 }
 
-void ClientServerManager::setHumChar(std::string Server, std::string Value) {  // Method/function defined inside the class
+void ClientServerManager::setHumChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
 
   Serial.printf("Setting Hum Char for Server(%s): \n",Server.c_str());
   Serial.print("First Server: ");
@@ -362,6 +434,7 @@ void ClientServerManager::setHumChar(std::string Server, std::string Value) {  /
     if (strcmp(SavedServer.c_str(), Server.c_str())==0) {
       HumidityCharList[i] = Value;
       HumidityCharNotifyList[i] = true;    
+      DateTimeList[i] = DateTimeString;
       Serial.println("Success: HumChar Set for Print");
       return;
     }    
@@ -387,12 +460,16 @@ void ClientServerManager::printReadings() {
 
       Serial.printf("BME Device: %s - Server Address: %s \n", ConnectedDevNameList[i].c_str(), SavedServer.c_str());
       Serial.printf("Readings: Temperature = %s C - ", TemperatureCharList[i].c_str());
-      Serial.printf("Humidity = %s ", HumidityCharList[i].c_str());
-      Serial.println("%\n");
+      Serial.printf("Humidity = %s %% - ", HumidityCharList[i].c_str());
+      Serial.printf("Date Time = %s ", DateTimeList[i].c_str());
+      Serial.println("\n");
       TemperatureCharNotifyList[i] = false;
       HumidityCharNotifyList[i] = false;
       String tempData = TemperatureCharList[i].c_str();
       String humData = HumidityCharList[i].c_str();
+      String DateTimeData = DateTimeList[i];
+
+
       WiFiClientSecure *client = new WiFiClientSecure;
   //String hostserver = "https://192.168.18.6:6802/postEnv"; local server
   String hostserver = "https://morning-peak-35514.herokuapp.com/postEnv"; //web server
@@ -498,7 +575,9 @@ void rescan(BLEScan* pBLEScan, int waittime) {
   Serial.println("Attempting Rescan......");
   return;
 }
+
 WiFiMulti WiFiMulti;
+
 void setup() {
   //Start serial communication
   Serial.begin(115200);
@@ -508,7 +587,7 @@ void setup() {
 
   Serial.println("Starting Arduino BLE Client application...");
   WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP("NOKIA-7480", "gyL9AJUiLd");// Change to reflect hotspot/home network
+  WiFiMulti.addAP(ssid, password);// Change to reflect hotspot/home network
 
   // wait for WiFi connection
   Serial.print("Waiting for WiFi to connect...");
@@ -516,6 +595,12 @@ void setup() {
     Serial.print(".");
   }
   Serial.println(" connected");
+
+  timeClient.begin();
+  while(!timeClient.update()) {
+    timeClient.forceUpdate();
+  }
+
   //Init BLE device
   BLEDevice::init("");
   // Retrieve a Scanner and set the callback we want to use to be informed when we
