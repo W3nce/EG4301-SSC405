@@ -20,9 +20,15 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 
-#define LEAP_YEAR(Y)     ( (Y>0) && !(Y%4) && ( (Y%100) || !(Y%400) ) )
+#define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
 
 #define temperatureCelsius
+
+
+// Timer variables
+unsigned long lastTime = 0;
+//Logging Checking Interval
+unsigned long loggingInterval = 3000;
 
 #define bleServerName "BME280_ESP32_SadServerSlave"
 //#define bleServerName2 "BME280_ESP32_SadServerSlave2"
@@ -61,7 +67,7 @@ const char* password = "gyL9AJUiLd";*/
 const char* ssid     = "SINGTEL-A458";
 const char* password = "quoophuuth";*/
 
-const char* ssid     = "Terence";
+const char* ssid = "Terence";
 const char* password = "qwertyios";
 
 // Define NTP Client to get time
@@ -100,8 +106,10 @@ public:
   bool contains(std::string ServerStr);
   bool contains(BLEAddress* Server);
   bool contains(BLEAdvertisedDevice* AdvDev);
+  int contains(BLEClient* client);
   void addDevice(BLEAdvertisedDevice* AdvDev);
-  void connectToServer(BLEAdvertisedDevice* AdvDev,BLEAddress* AdvServerAdress);
+  void removeDevice(BLEClient* client) ;
+  void connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddress* AdvServerAdress);
   void tryConnect();
   bool check();
   void setTempChar(std::string Server, std::string Value, String DateTimeString);
@@ -125,30 +133,30 @@ String getFormattedDate() {
   unsigned long rawTime = timeClient.getEpochTime() / 86400L;  // in days
   unsigned long days = 0, year = 1970;
   uint8_t month;
-  static const uint8_t monthDays[]={31,28,31,30,31,30,31,31,30,31,30,31};
+  static const uint8_t monthDays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
 
-  while((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime)
+  while ((days += (LEAP_YEAR(year) ? 366 : 365)) <= rawTime)
     year++;
-  rawTime -= days - (LEAP_YEAR(year) ? 366 : 365); // now it is days in this year, starting at 0
-  days=0;
-  for (month=0; month<12; month++) {
+  rawTime -= days - (LEAP_YEAR(year) ? 366 : 365);  // now it is days in this year, starting at 0
+  days = 0;
+  for (month = 0; month < 12; month++) {
     uint8_t monthLength;
-    if (month==1) { // february
+    if (month == 1) {  // february
       monthLength = LEAP_YEAR(year) ? 29 : 28;
     } else {
       monthLength = monthDays[month];
     }
     if (rawTime < monthLength) break;
-    rawTime -= monthLength; 
+    rawTime -= monthLength;
   }
-  String monthStr = ++month < 10 ? "0" + String(month) : String(month); // jan is month 1  
-  String dayStr = ++rawTime < 10 ? "0" + String(rawTime) : String(rawTime); // day of month  
+  String monthStr = ++month < 10 ? "0" + String(month) : String(month);      // jan is month 1
+  String dayStr = ++rawTime < 10 ? "0" + String(rawTime) : String(rawTime);  // day of month
   return String(year) + "-" + monthStr + "-" + dayStr + "T" + timeClient.getFormattedTime() + "Z";
 }
 
 // Function to get date and time from NTPClient
 String getTimeStamp() {
-  while(!timeClient.update()) {
+  while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
   // The formattedDate comes with the following format:
@@ -162,24 +170,24 @@ String getTimeStamp() {
   String dayStamp = formattedDate.substring(0, splitT);
   //Serial.println(dayStamp);
   // Extract time
-  String timeStamp = formattedDate.substring(splitT+1, formattedDate.length()-1);
+  String timeStamp = formattedDate.substring(splitT + 1, formattedDate.length() - 1);
   //Serial.println(timeStamp);
 }
 //When the BLE Server sends a new temperature reading with the notify property
 static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,
-                                      uint8_t* pData, size_t length, bool isNotify) {  
+                                      uint8_t* pData, size_t length, bool isNotify) {
   timeClient.update();
   Serial.print("[[Notification (TEMP)]] @ ");
   String DateTimeString = getFormattedDate();
   Serial.println(DateTimeString);
 
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
-  Serial.printf("Server (%s) Notified Temperature: ",ServerAddressStr.c_str());
-  char*temperatureChar = (char*)pData;
+  Serial.printf("Server (%s) Notified Temperature: ", ServerAddressStr.c_str());
+  char* temperatureChar = (char*)pData;
   std::string TempString = temperatureChar;
-  Serial.printf("Temperature: %s C \n",TempString.c_str());
+  Serial.printf("%s C \n", TempString.c_str());
   Serial.print("-> Call setTempChar: ");
-  MyClientServerManager->setTempChar(ServerAddressStr, TempString,DateTimeString);
+  MyClientServerManager->setTempChar(ServerAddressStr, TempString, DateTimeString);
   Serial.println("");
 }
 
@@ -190,17 +198,17 @@ static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteri
   Serial.print("[[Notification (HUM)]] @ ");
   String DateTimeString = getFormattedDate();
   Serial.println(DateTimeString);
-  
+
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
 
-  Serial.printf("Server (%s) Notified Humidity: ",ServerAddressStr.c_str());
-  char*humidityChar = (char*)pData;
+  Serial.printf("Server (%s) Notified Humidity: ", ServerAddressStr.c_str());
+  char* humidityChar = (char*)pData;
   std::string HumString = humidityChar;
-  Serial.printf("Humidity: %s %% \n",HumString.c_str());
+  Serial.printf("Humidity: %s %% \n", HumString.c_str());
   Serial.print("-> Call setHumChar: ");
-  MyClientServerManager->setHumChar(ServerAddressStr, HumString,DateTimeString);
+  MyClientServerManager->setHumChar(ServerAddressStr, HumString, DateTimeString);
   Serial.println("");
-  }
+}
 
 
 
@@ -210,7 +218,7 @@ int ClientServerManager::getNumberofClientServer() {
 }
 
 bool ClientServerManager::contains(std::string ServerStr) {  // Method/function defined inside the class
-  Serial.print("Contains ServerStr: @BLEAddress ");
+  Serial.print("Contains ServerStr: @BLEAddressName ");
   if (ServerStr == "") {
     Serial.println("false (Address NIL)");
     return false;
@@ -243,6 +251,24 @@ bool ClientServerManager::contains(BLEAddress* Server) {  // Method/function def
     }
   }
   return false;
+}
+
+int ClientServerManager::contains(BLEClient* client) {  // Method/function defined inside the class
+  Serial.print("Contains Client: @BLEClient ");
+  for (int i = 0; i < sizelimit; i++) {
+    if (ClientList[i] == nullptr) {
+      Serial.println("false (Not Exist)");
+      return -1;
+    }
+    BLEClient otherCLient = *ClientList[i];
+    std::string otherClientStr = otherCLient.toString();
+    if (otherClientStr.compare(client->toString()) == 0) {
+
+      Serial.println("true (Found)");
+      return i;
+    }
+  }
+  return -1;
 }
 
 bool ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) {  // Method/function defined inside the class
@@ -285,9 +311,34 @@ void ClientServerManager::addDevice(BLEAdvertisedDevice* AdvDev) {
   }
 }
 
+void ClientServerManager::removeDevice(BLEClient* client) {
+  int index = contains(client);
+  if (index==-1) {
+    Serial.println("removeClient: Cannot find Client");
+    return;
+  } else {
+    TotalClientServer = TotalClientServer - 1;
+    ConnectedDevNameList[index] = "";
+    ConnectedAdvDevList[index] = NULL;
+    ServerAddressList[index] = NULL;
+    CharReadyList[index] = false;
+    TemperatureCharNotifyList[index] = false;
+    HumidityCharNotifyList[index] = false;
+    ClientList[index]->disconnect();
+    ClientList[index] = NULL;
+
+    Serial.println("removeClient: Successfully Removed");
+    
+    Serial.printf("Current Server Connected: %d / %d Devices \n", TotalClientServer, DeviceUsedCount);
+    Serial.println("");
+  }
+}
+
+
+
 void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddress* AdvServerAdress) {
 
-  Serial.println("[[ServerConnect]]");  
+  Serial.println("[[ServerConnect]]");
 
   Serial.printf("Attempting to connect: %s ", AdvDev->getName().c_str());
   Serial.printf("Server Address: %s \n", AdvServerAdress->toString().c_str());
@@ -296,8 +347,8 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
     Serial.println("Device not configured");
     return;
   }
-  
-    Serial.print("ConnectToServer: ");
+
+  Serial.print("ConnectToServer: ");
   for (int i = 0; i < sizelimit; i++) {
 
     if (ServerAddressList[i] == nullptr) {
@@ -306,11 +357,11 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
     }
     if (AdvServerAdress->equals(*ServerAddressList[i])) {
       BLEClient* pClient = BLEDevice::createClient();
-      pClient->setClientCallbacks(new MyClientCallback());      
-      pClient->connect(AdvDev); 
+      pClient->setClientCallbacks(new MyClientCallback());
+      pClient->connect(AdvDev);
       Serial.println("Connected to server");
 
-      // Obtain a reference to the service we are after in the remote BLE server.      
+      // Obtain a reference to the service we are after in the remote BLE server.
       Serial.print("Getting Remote Service: ");
 
       BLERemoteService* pRemoteService = pClient->getService(bmeServiceUUID);
@@ -319,9 +370,9 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
         Serial.println("Failed to find our service UUID: ");
         Serial.println(bmeServiceUUID.toString().c_str());
         return;
-      }      
+      }
       Serial.println("Found Service UUID");
-      
+
       Serial.print("Setting Characteristics: ");
       // Obtain a reference to the characteristics in the service of the remote BLE server.
       BLERemoteCharacteristic* TempChar = pRemoteService->getCharacteristic(temperatureCharacteristicUUID);
@@ -361,29 +412,29 @@ void ClientServerManager::tryConnect() {
     Serial.println("No Server to connect! (Empty Array)");
     return;
   }
-   
-    Serial.print("First Server: ");
-  for (int i = 0; i < sizelimit; i++) { 
+
+  Serial.print("First Server: ");
+  for (int i = 0; i < sizelimit; i++) {
     if (ServerAddressList[i] == nullptr) {
       Serial.println("No Server to connect! (Null Pointer)\n");
       return;
-    }    
+    }
     Serial.print("Proceed -> ");
-    
+
     Serial.print("Check Connected: ");
     if (!CharReadyList[i]) {
       Serial.println("Not Connected Proceed -> \n");
-      connectToServer(ConnectedAdvDevList[i],ServerAddressList[i]);    
-      Serial.println("");        
-      Serial.print("Next Server: ");   
-    }    
+      connectToServer(ConnectedAdvDevList[i], ServerAddressList[i]);
+      Serial.println("");
+      Serial.print("Next Server: ");
+    }
   }
   Serial.println("No Server to connect! (End of Array)");
   return;
 }
 
 bool ClientServerManager::check() {
-  Serial.println("[[ServerCheck]]");  
+  Serial.println("[[ServerCheck]]");
   Serial.print("ServerCheck: ");
   if (DeviceUsedCount == TotalClientServer) {
     Serial.printf("All Server Connected: %d / %d Devices \n", TotalClientServer, DeviceUsedCount);
@@ -397,23 +448,23 @@ bool ClientServerManager::check() {
 }
 
 void ClientServerManager::setTempChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
-  Serial.printf("Setting Temp Char for Server(%s): \n",Server.c_str());
+  Serial.printf("Setting Temp Char for Server(%s): \n", Server.c_str());
   Serial.print("First Server: ");
   for (int i = 0; i < sizelimit; i++) {
     if (ServerAddressList[i] == nullptr) {
       Serial.println("No Server to set!");
       return;
-    }    
+    }
     std::string SavedServer = ServerAddressList[i]->toString();
-    Serial.printf("Checking Target Address (%s) : ",SavedServer.c_str());
-    if (strcmp(SavedServer.c_str(), Server.c_str())==0) {
+    Serial.printf("Checking Target Address (%s) : ", SavedServer.c_str());
+    if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
       TemperatureCharList[i] = Value;
-      TemperatureCharNotifyList[i] = true;    
-      DateTimeList[i] = DateTimeString;   
+      TemperatureCharNotifyList[i] = true;
+      DateTimeList[i] = DateTimeString;
       Serial.println("Success: TempChar Set for Print");
       return;
-    }    else{
-    Serial.println("Failed: Server Address Unmatch");
+    } else {
+      Serial.println("Failed: Server Address Unmatch");
     }
     Serial.print("Next Server: ");
   }
@@ -422,7 +473,7 @@ void ClientServerManager::setTempChar(std::string Server, std::string Value, Str
 
 void ClientServerManager::setHumChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
 
-  Serial.printf("Setting Hum Char for Server(%s): \n",Server.c_str());
+  Serial.printf("Setting Hum Char for Server(%s): \n", Server.c_str());
   Serial.print("First Server: ");
   for (int i = 0; i < sizelimit; i++) {
     if (ServerAddressList[i] == nullptr) {
@@ -430,16 +481,15 @@ void ClientServerManager::setHumChar(std::string Server, std::string Value, Stri
       return;
     }
     std::string SavedServer = ServerAddressList[i]->toString();
-    Serial.printf("Checking Target Address (%s) : ",SavedServer.c_str());
-    if (strcmp(SavedServer.c_str(), Server.c_str())==0) {
+    Serial.printf("Checking Target Address (%s) : ", SavedServer.c_str());
+    if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
       HumidityCharList[i] = Value;
-      HumidityCharNotifyList[i] = true;    
+      HumidityCharNotifyList[i] = true;
       DateTimeList[i] = DateTimeString;
       Serial.println("Success: HumChar Set for Print");
       return;
-    }    
-    else{
-    Serial.println("Failed: Server Address Unmatch");
+    } else {
+      Serial.println("Failed: Server Address Unmatch");
     }
     Serial.print("Next Server: ");
   }
@@ -470,72 +520,73 @@ void ClientServerManager::printReadings() {
       String DateTimeData = DateTimeList[i];
 
 
-      WiFiClientSecure *client = new WiFiClientSecure;
-  //String hostserver = "https://192.168.18.6:6802/postEnv"; local server
-  String hostserver = "https://morning-peak-35514.herokuapp.com/postEnv"; //web server
-  if(client) {
-//    client -> setCACert(rootCACertificate);
-    client -> setInsecure(); //comment to test secure connection
-    {
-      // Add a scoping block for HTTPClient https to make sure it is destroyed before WiFiClientSecure *client is 
-      HTTPClient https;
-  
-      Serial.print("[HTTPS] begin...\n");
-      if (https.begin(*client, hostserver)) {  // HTTPS
-        Serial.print("[HTTPS] GET...\n");
-        // start connection and send HTTP header
-        int httpCode = https.GET();
-  
-        // httpCode will be negative on error
-        if (httpCode > 0) {
-          // HTTP header has been send and Server response header has been handled
-          Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
-  
-          // file found at server
-          if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+      WiFiClientSecure* client = new WiFiClientSecure;
+      //String hostserver = "https://192.168.18.6:6802/postEnv"; local server
+      //String hostserver = "https://morning-peak-35514.herokuapp.com/postEnv";  //web server
+      String hostserver = "https://sussylogger.fly.dev/postEnv";  //web server
+      if (client) {
+        //    client -> setCACert(rootCACertificate);
+        client->setInsecure();  //comment to test secure connection
+        {
+          // Add a scoping block for HTTPClient https to make sure it is destroyed before WiFiClientSecure *client is
+          HTTPClient https;
 
-            String httpRequestData = "temperature="+tempData+"&humidity="+humData;
-            https.addHeader("Content-Type", "application/x-www-form-urlencoded");
-            int httpResponseCode =  https.POST(httpRequestData);
-            
-            Serial.print("HTTP POST Response code: ");
-            Serial.println(httpResponseCode);
+          Serial.print("[HTTPS] begin...\n");
+          if (https.begin(*client, hostserver)) {  // HTTPS
+            Serial.print("[HTTPS] GET...\n");
+            // start connection and send HTTP header
+            int httpCode = https.GET();
+
+            // httpCode will be negative on error
+            if (httpCode > 0) {
+              // HTTP header has been send and Server response header has been handled
+              Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
+
+              // file found at server
+              if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+
+                String httpRequestData = "temperature=" + tempData + "&humidity=" + humData;
+                https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+                int httpResponseCode = https.POST(httpRequestData);
+
+                Serial.print("HTTP POST Response code: ");
+                Serial.println(httpResponseCode);
+              }
+
+
+            } else {
+              Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
+            }
+
+            https.end();
+          } else {
+            Serial.printf("[HTTPS] Unable to connect\n");
           }
 
-          
-        } else {
-          Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
+          // End extra scoping block
         }
-  
-        https.end();
-      } else {
-        Serial.printf("[HTTPS] Unable to connect\n");
-      }
 
-      // End extra scoping block
-    }
-  
-    delete client;
-  } else {
-    Serial.println("Unable to create client");
-  }
+        delete client;
+      } else {
+        Serial.println("Unable to create client");
+      }
     }
   }
   return;
 }
 
-void switchprintf(const char* main, const char* format,bool bswitch){
-  if (bswitch){
-    Serial.printf(main,format);
+void switchprintf(const char* main, const char* format, bool bswitch) {
+  if (bswitch) {
+    Serial.printf(main, format);
   }
 }
-void switchprint(const char* main,bool bswitch){
-  if (bswitch){
+void switchprint(const char* main, bool bswitch) {
+  if (bswitch) {
     Serial.printf(main);
   }
 }
-void switchprintln(const char* main,bool bswitch){
-  if (bswitch){
+void switchprintln(const char* main, bool bswitch) {
+  if (bswitch) {
     Serial.println(main);
   }
 }
@@ -544,22 +595,22 @@ void switchprintln(const char* main,bool bswitch){
 //Callback function that gets called, when another device's advertisement has been received
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
-    if (advertisedDevice.haveName() && !MyClientServerManager->contains(&advertisedDevice)) {  
-        switchprintln("[[SCAN]]",TurnOnScanResults);    
-        switchprintln("BLE Advertised Device found: ",TurnOnScanResults);
-        switchprintln(advertisedDevice.toString().c_str(),TurnOnScanResults);
+    if (advertisedDevice.haveName() && !MyClientServerManager->contains(&advertisedDevice)) {
+      switchprintln("[[SCAN]]", TurnOnScanResults);
+      switchprintln("BLE Advertised Device found: ", TurnOnScanResults);
+      switchprintln(advertisedDevice.toString().c_str(), TurnOnScanResults);
       if (advertisedDevice.getName() == bleServerNameCheck && advertisedDevice.haveServiceUUID() && advertisedDevice.getServiceUUID().equals(bmeServiceUUID)) {
-         //Scan can be stopped, we found what we are looking for
+        //Scan can be stopped, we found what we are looking for
         //create pointer of advdev addDevice(BLEAdvertisedDevice* AdvDev)
-        BLEAdvertisedDevice * NewDev = new BLEAdvertisedDevice(advertisedDevice);
+        BLEAdvertisedDevice* NewDev = new BLEAdvertisedDevice(advertisedDevice);
         MyClientServerManager->addDevice(NewDev);
 
         Serial.printf("Total Device found and Saved: %d \n", MyClientServerManager->getNumberofClientServer());
         advertisedDevice.getScan()->stop();
       } else {
-        switchprintln("UUID/Name Unmatch! Device not Connected.",TurnOnScanResults);
+        switchprintln("UUID/Name Unmatch! Device not Connected.", TurnOnScanResults);
       }
-      switchprintln("",TurnOnScanResults);
+      switchprintln("", TurnOnScanResults);
     }
     /*else if (!advertisedDevice.haveName()) {
       Serial.println("No Device Name");
@@ -587,7 +638,7 @@ void setup() {
 
   Serial.println("Starting Arduino BLE Client application...");
   WiFi.mode(WIFI_STA);
-  WiFiMulti.addAP(ssid, password);// Change to reflect hotspot/home network
+  WiFiMulti.addAP(ssid,password);  // Change to reflect hotspot/home network
 
   // wait for WiFi connection
   Serial.print("Waiting for WiFi to connect...");
@@ -597,7 +648,7 @@ void setup() {
   Serial.println(" connected");
 
   timeClient.begin();
-  while(!timeClient.update()) {
+  while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
 
@@ -616,15 +667,19 @@ void setup() {
 
 void loop() {
   int waittime = 5;
+  if ((millis() - lastTime) > loggingInterval) {
   if (MyClientServerManager->getNumberofClientServer() == 0) {
     rescan(pBLEScan, waittime);
     return;
-  } 
+  }
   if (!MyClientServerManager->check()) {
     rescan(pBLEScan, waittime);
   }
   MyClientServerManager->tryConnect();
 
   MyClientServerManager->printReadings();
-  delay(10000);  // Delay a second between loops.
+      
+  lastTime = millis();
+  }
+  //delay(3000);  // Delay a second between loops.
 }
