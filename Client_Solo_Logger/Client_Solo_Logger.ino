@@ -21,7 +21,7 @@
 /*const char* ssid     = "NOKIA-7480";
 const char* password = "gyL9AJUiLd";*/
 
-const char* ssid     = "SINGTEL-A458";
+const char* ssid = "SINGTEL-A458";
 const char* password = "quoophuuth";
 
 /*const char* ssid = "Terence";
@@ -49,20 +49,16 @@ String dayStamp;
 String timeStamp;
 
 //BME Sensor
-Adafruit_BME280 bme; // I2C
-
-//Variables for Temp and Hum
-float temp;
-float tempF;
-float hum;
+Adafruit_BME280 bme;  // I2C
 
 // Show Readings
 int show = 0;
 
-void initBME(){
+void initBME() {
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
-    while (1);
+    while (1)
+      ;
   }
 }
 
@@ -113,58 +109,60 @@ String getTimeStamp() {
 
 
 //function that prints the latest sensor readings in the OLED display
-void sendReadings(String tempData,String humData,String DateTimeData) {
+void sendReadings(String tempData, String humData, String DateTimeData) {
 
-      WiFiClientSecure* client = new WiFiClientSecure;
-      //String hostserver = "https://192.168.18.6:6802/postEnv"; local server
-      //String hostserver = "https://morning-peak-35514.herokuapp.com/postEnv";  //web server
-      String hostserver = "https://sussylogger.fly.dev/postEnv";  //web server
-      if (client) {
-        //    client -> setCACert(rootCACertificate);
-        client->setInsecure();  //comment to test secure connection
-        {
-          // Add a scoping block for HTTPClient https to make sure it is destroyed before WiFiClientSecure *client is
-          HTTPClient https;
+  WiFiClientSecure* client = new WiFiClientSecure;
+  //String hostserver = "https://192.168.18.6:6802/postEnv"; local server
+  //String hostserver = "https://morning-peak-35514.herokuapp.com/postEnv";  //web server
+  String hostserver = "https://sussylogger.fly.dev/postEnv";  //web server
+  if (client) {
+    //    client -> setCACert(rootCACertificate);
+    client->setInsecure();  //comment to test secure connection
+    {
+      // Add a scoping block for HTTPClient https to make sure it is destroyed before WiFiClientSecure *client is
+      HTTPClient https;
 
-          Serial.print("[HTTPS] begin...\n");
-          if (https.begin(*client, hostserver)) {  // HTTPS
-            Serial.print("[HTTPS] GET...\n");
-            // start connection and send HTTP header
-            int httpCode = https.GET();
+      Serial.print("[HTTPS] begin...\n");
+      if (https.begin(*client, hostserver)) {  // HTTPS
+        Serial.print("[HTTPS] GET...\n");
+        // start connection and send HTTP header
+        int httpCode = https.GET();
 
-            // httpCode will be negative on error
-            if (httpCode > 0) {
-              // HTTP header has been send and Server response header has been handled
-              Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
+        // httpCode will be negative on error
+        if (httpCode > 0) {
+          // HTTP header has been send and Server response header has been handled
+          Serial.printf("[HTTPS] GET... code: %d\n", httpCode);
 
-              // file found at server
-              if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+          // file found at server
+          if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
 
-                String httpRequestData =  "id=" + name + "&temperature=" + tempData + "&humidity=" + humData + "&datetime=" + DateTimeData ;
-                https.addHeader("Content-Type", "application/x-www-form-urlencoded");
-                int httpResponseCode = https.POST(httpRequestData);
+            String httpRequestData = "childno=" + name + "&time=" + DateTimeData + "&temperature=" + tempData + "&humidity=" + humData;
+            Serial.print("Post Request Data String: ");
+            Serial.println(httpRequestData);
+            https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+            int httpResponseCode = https.POST(httpRequestData);
 
-                Serial.print("HTTP POST Response code: ");
-                Serial.println(httpResponseCode);
-              }
-
-
-            } else {
-              Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
-            }
-
-            https.end();
-          } else {
-            Serial.printf("[HTTPS] Unable to connect\n");
+            Serial.print("HTTP POST Response code: ");
+            Serial.println(httpResponseCode);
           }
 
-          // End extra scoping block
+
+        } else {
+          Serial.printf("[HTTPS] GET... failed, error: %s\n", https.errorToString(httpCode).c_str());
         }
 
-        delete client;
+        https.end();
       } else {
-        Serial.println("Unable to create client");
+        Serial.printf("[HTTPS] Unable to connect\n");
       }
+
+      // End extra scoping block
+    }
+
+    delete client;
+  } else {
+    Serial.println("Unable to create client");
+  }
 }
 
 WiFiMulti WiFiMulti;
@@ -181,7 +179,7 @@ void setup() {
 
   Serial.println("Starting Arduino BLE Client application...");
   WiFi.mode(WIFI_STA);
-  
+
   WiFi.begin(ssid, password);
 
   //WiFiMulti.addAP(ssid, password);  // Change to reflect hotspot/home network
@@ -189,9 +187,9 @@ void setup() {
   // wait for WiFi connection
   Serial.printf("Connecting to %s", ssid);
 
-  while ( WiFi.status() != WL_CONNECTED ) {
-    delay ( 500 );
-    Serial.print ( "." );
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
 
   /*while ((WiFiMulti.run() != WL_CONNECTED)) {
@@ -214,25 +212,26 @@ void loop() {
     Serial.print("Start Reading @ ");
     String DateTimeData = getFormattedDate();
     Serial.println(DateTimeData);
-    temp = bme.readTemperature();
-    tempF = 1.8*temp +32;
-    hum = bme.readHumidity();
 
-    //Notify temperature reading from BME sensor
-    #ifdef temperatureCelsius
-      static char temperatureCTemp[6];
-      dtostrf(temp, 6, 2, temperatureCTemp);
-      Serial.print("Temperature Celsius: ");
-      Serial.print(temperatureCTemp);
-      Serial.print(" deg C");
-    #else
-      static char temperatureFTemp[6];
-      dtostrf(tempF, 6, 2, temperatureFTemp);
-      Serial.print("Temperature Fahrenheit: ");
-      Serial.print(temperatureCTemp);
-      Serial.print(" ºF");
-    #endif
-    
+    float temp = bme.readTemperature();
+    float tempF = 1.8 * temp + 32;
+    float hum = bme.readHumidity();
+
+//Notify temperature reading from BME sensor
+#ifdef temperatureCelsius
+    static char temperatureCTemp[6];
+    dtostrf(temp, 6, 2, temperatureCTemp);
+    Serial.print("Temperature Celsius: ");
+    Serial.print(temperatureCTemp);
+    Serial.print(" deg C");
+#else
+    static char temperatureFTemp[6];
+    dtostrf(tempF, 6, 2, temperatureFTemp);
+    Serial.print("Temperature Fahrenheit: ");
+    Serial.print(temperatureFTemp);
+    Serial.print(" ºF");
+#endif
+
     //Notify humidity reading from BME
     static char humidityTemp[6];
     dtostrf(hum, 6, 2, humidityTemp);
@@ -240,8 +239,17 @@ void loop() {
     Serial.print(humidityTemp);
     Serial.println(" %");
 
-    String tempData = temperatureCTemp;
-    String humData = humidityTemp;
+    Serial.printf("%f , %f \n", temp, hum);
+    static char ptemp[7];
+    static char phum[7];
+
+    dtostrf(temp, 6, 2, ptemp);
+    dtostrf(hum, 6, 2, phum);
+
+    String tempData = &ptemp[1];
+
+    String humData = &phum[1];
+
     sendReadings(tempData,humData,DateTimeData);
 
 
