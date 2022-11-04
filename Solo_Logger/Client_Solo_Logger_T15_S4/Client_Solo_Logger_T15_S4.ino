@@ -20,11 +20,11 @@
 /*const char* ssid     = "NOKIA-7480";
 const char* password = "gyL9AJUiLd";*/
 
-const char* ssid = "SINGTEL-A458";
-const char* password = "quoophuuth";
+//const char* ssid = "SINGTEL-A458";
+//const char* password = "quoophuuth";
 
-/*const char* ssid = "Terence";
-const char* password = "qwertyios";*/
+const char* ssid = "Terence";
+const char* password = "qwertyios";
 
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
 
@@ -35,18 +35,18 @@ String name = "Sussy";
 
 //Deep Sleep Time/ logging frequency
 #define uS_TO_S_FACTOR 1000000 /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP 900 //15 mins
+#define TIME_TO_SLEEP 900      //15 mins
 
 //Number of readings to store before sending
 #define ReadingsThreshold 4
 RTC_DATA_ATTR static int ReadingsNotSent = 0;
-RTC_DATA_ATTR static char* TimeArray[ReadingsThreshold];
 RTC_DATA_ATTR static float TempArray[ReadingsThreshold];
 RTC_DATA_ATTR static float HumArray[ReadingsThreshold];
-RTC_DATA_ATTR static char arr0[20 + 1]; 
-RTC_DATA_ATTR static char arr1[20 + 1]; 
-RTC_DATA_ATTR static char arr2[20 + 1]; 
-RTC_DATA_ATTR static char arr3[20 + 1]; 
+RTC_DATA_ATTR static char arr0[20 + 1];
+RTC_DATA_ATTR static char arr1[20 + 1];
+RTC_DATA_ATTR static char arr2[20 + 1];
+RTC_DATA_ATTR static char arr3[20 + 1];
+RTC_DATA_ATTR static char* TimeArray[ReadingsThreshold] = { arr0, arr1, arr2, arr3 };
 
 //Client
 static WiFiClientSecure* client;
@@ -64,9 +64,6 @@ String timeStamp;
 //BME Sensor
 Adafruit_BME280 bme;  // I2C
 
-// Show Readings
-int show = 0;
-
 void initBME() {
   if (!bme.begin(0x76)) {
     Serial.println("Could not find a valid BME280 sensor, check wiring!");
@@ -77,6 +74,7 @@ void initBME() {
 
 String getFormattedDate() {
   unsigned long rawTime = timeClient.getEpochTime() / 86400L;  // in days
+
   unsigned long days = 0, year = 1970;
   uint8_t month;
   static const uint8_t monthDays[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
@@ -181,8 +179,10 @@ void deleteClient() {
   delete client;
 }
 
+//Sends reading through https
 void sendReading(String tempData, String humData, String DateTimeData) {
-  String httpRequestData = "childid=" + name + "&time=" + DateTimeData + "&temperature=" + tempData + "&humidity=" + humData;
+  String tableid = String("testing");
+  String httpRequestData = "tableid=" + tableid + "&childid=" + name + "&time=" + DateTimeData + "&temperature=" + tempData + "&humidity=" + humData;
   Serial.print("Post Request Data String: ");
   Serial.println(httpRequestData);
   https.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -191,6 +191,8 @@ void sendReading(String tempData, String humData, String DateTimeData) {
   Serial.print("HTTP POST Response code: ");
   Serial.println(httpResponseCode);
 }
+
+
 
 //function that prints the latest sensor readings in the OLED display
 void sendReadings(String tempData, String humData, String DateTimeData) {
@@ -220,7 +222,8 @@ void sendReadings(String tempData, String humData, String DateTimeData) {
           // file found at server
           if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
 
-            String httpRequestData = "childid=" + name + "&time=" + DateTimeData + "&temperature=" + tempData + "&humidity=" + humData;
+            String tableid = "testing";
+            String httpRequestData = "tableid=" + tableid + "&childid=" + name + "&time=" + DateTimeData + "&temperature=" + tempData + "&humidity=" + humData;
             Serial.print("Post Request Data String: ");
             Serial.println(httpRequestData);
             https.addHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -249,9 +252,10 @@ void sendReadings(String tempData, String humData, String DateTimeData) {
   }
 }
 
-
+unsigned long startTime = 0;
 
 void setup() {
+  startTime = millis();
   //Start serial communication
   Serial.begin(115200);
   Serial.println();
@@ -276,43 +280,27 @@ void setup() {
   while (!timeClient.update()) {
     timeClient.forceUpdate();
   }
+  Serial.println("Time Updated ");
 
   // Init BME Sensor
   initBME();
-  Serial.print("Start Reading @ ");
+  Serial.print("BME Initialised, Start Reading @ ");
   String DateTimeData = getFormattedDate();
-  //Serial.println(DateTimeData);
-  switch(ReadingsNotSent){
-    case (0):{
-      //char arr0[DateTimeData.length() + 2]; 
-	    strcpy(arr0, getFormattedDate().c_str());
-      TimeArray[ReadingsNotSent] = &arr0[0];
-      break;}
-    case (1):{
-      //char arr1[DateTimeData.length() + 2]; 
-	    strcpy(arr1, getFormattedDate().c_str());
-      TimeArray[ReadingsNotSent] = &arr1[0];
-      break;}
-    case (2):{
-      //char arr2[DateTimeData.length() + 2]; 
-	    strcpy(arr2, getFormattedDate().c_str());
-      TimeArray[ReadingsNotSent] = &arr2[0];
-      break;}
-    case (3):{
-      //char arr3[DateTimeData.length() + 2];
-	    strcpy(arr3, getFormattedDate().c_str()); 
-      TimeArray[ReadingsNotSent] = &arr3[0];
-      break;}
-  }
-  //Serial.println(const_cast<char*>(getFormattedDate().c_str()));
+  Serial.print("Date OK ");
+  char* temparr = TimeArray[ReadingsNotSent];
+  strcpy(temparr, DateTimeData.c_str());
+  Serial.print("Temp OK ");
 
   float temp = bme.readTemperature();
   float tempF = 1.8 * temp + 32;
   float hum = bme.readHumidity();
+  Serial.print("Hum OK ");
 
   TempArray[ReadingsNotSent] = temp;
   HumArray[ReadingsNotSent] = hum;
   Serial.println(TimeArray[ReadingsNotSent]);
+
+  Serial.println("Values Stored ");
 
   ++ReadingsNotSent;
   Serial.println("Readings Not Sent: " + String(ReadingsNotSent) + "/" + String(ReadingsThreshold));
@@ -340,6 +328,8 @@ void setup() {
   Serial.println("Going to sleep now");
   delay(1000);
   Serial.flush();
+  Serial.print(String(millis() - startTime).c_str());
+  Serial.println(" MilliSeconds Taken");
   esp_deep_sleep_start();
 }
 
