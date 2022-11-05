@@ -1,60 +1,46 @@
-/*********
-  Rui Santos
-  Complete instructions at https://RandomNerdTutorials.com/esp32-ble-server-client/
-  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files.
-  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-*********/
-
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include "BLEDevice.h"
 #include "BLEAdvertisedDevice.h"
 #include <Wire.h>
-#include <WiFiMulti.h>
 #include <cstring>
 //#include <ArduinoTrace.h>
-
-const int ledPin1 = 16; 
-const int ledPin2 = 17; 
-pinMode(ledPin1, OUTPUT);
-digitalWrite(ledPin, HIGH);
 
 // Settings Needed
 static bool TurnOnScanResults = false;
 
 // Replace with your network credentials
-/*const char* ssid     = "NOKIA-7480";
-const char* password = "gyL9AJUiLd";*/
-
-const char* ssid     = "SINGTEL-A458";
-const char* password = "quoophuuth";
-
-/*const char* ssid = "Terence";
-const char* password = "qwertyios";*/
+const char* ssid = "Terence";
+const char* password = "qwertyios";
 
 // Libraries to get time from NTP Server
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 
+//To calculate leap year
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))
 
-#define temperatureCelsius
+//Declaring the pins used for LED
+const int ledPin1 = D10; 
+const int ledPin2 = D9; 
 
+//Default Temperature is in Celsius
+#define temperatureCelsius
 
 // Timer variables
 unsigned long lastTime = 0;
 //Logging Checking Interval
-unsigned long loggingInterval = 3000;
+unsigned long loggingInterval = 10000;
 
-#define bleServerName "BME280_ESP32_SadServerSlave"
-//#define bleServerName2 "BME280_ESP32_SadServerSlave2"
-
+//BLE Server name (the other ESP32 name running the server sketch)
 std::string bleServerNameCheck = "Child_1";
-static BLEUUID bmeServiceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");
-//static BLEUUID bmeServiceUUID2("30880f64-4239-11ed-b878-0242ac120002");
 
+//Total Number of Children to be connected
 static const int DeviceUsedCount = 1;
+
+/* UUID's of the service, characteristic that we want to read*/
+static BLEUUID bmeServiceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");
 
 #ifdef temperatureCelsius
 //Temperature Celsius Characteristic
@@ -67,14 +53,12 @@ static BLEUUID temperatureCharacteristicUUID("f78ebbff-c8b7-4107-93de-889a6a06d4
 // Humidity Characteristic
 static BLEUUID humidityCharacteristicUUID("ca73b3ba-39f6-4ab3-91ae-186dc9577d99");
 
-
 //Scan Object Pointer
 static BLEScan* pBLEScan;
 
 //Activate notify
 const uint8_t notificationOn[] = { 0x1, 0x0 };
 const uint8_t notificationOff[] = { 0x0, 0x0 };
-
 
 // Define NTP Client to get time
 WiFiUDP ntpUDP;
@@ -85,6 +69,7 @@ String formattedDate;
 String dayStamp;
 String timeStamp;
 
+//returns Boolean String
 std::string boolString(bool b) {
   if (b) {
     return "true";
@@ -92,7 +77,6 @@ std::string boolString(bool b) {
     return "false";
   }
 }
-
 class ClientServerManager {
   static const int sizelimit = 5;
   int TotalClientServer = 0;
@@ -120,7 +104,7 @@ public:
   bool check();
   void setTempChar(std::string Server, std::string Value, String DateTimeString);
   void setHumChar(std::string Server, std::string Value, String DateTimeString);
-  void printReadings();
+  void sendReadings();
 };
 
 static ClientServerManager* MyClientServerManager = new ClientServerManager();
@@ -160,7 +144,6 @@ String getFormattedDate() {
   String dayStr = ++rawTime < 10 ? "0" + String(rawTime) : String(rawTime);  // day of month
   return String(year) + "-" + monthStr + "-" + dayStr + "T" + timeClient.getFormattedTime() + "Z";
 }
-
 // Function to get date and time from NTPClient
 String getTimeStamp() {
   while (!timeClient.update()) {
@@ -168,9 +151,7 @@ String getTimeStamp() {
   }
   // The formattedDate comes with the following format:
   // 2018-05-28T16:00:13Z
-  // We need to extract date and time
   String formattedDate = getFormattedDate();
-  //Serial.println(formattedDate);
 
   // Extract date
   int splitT = formattedDate.indexOf("T");
@@ -191,13 +172,13 @@ static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharact
   std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
   Serial.printf("Server (%s) Notified Temperature: ", ServerAddressStr.c_str());
   char* temperatureChar = (char*)pData;
+  temperatureChar[6] = '\0';
   std::string TempString = temperatureChar;
   Serial.printf("%s C \n", TempString.c_str());
   Serial.print("-> Call setTempChar: ");
   MyClientServerManager->setTempChar(ServerAddressStr, TempString, DateTimeString);
   Serial.println("");
 }
-
 //When the BLE Server sends a new humidity reading with the notify property
 static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,
                                    uint8_t* pData, size_t length, bool isNotify) {
@@ -210,20 +191,16 @@ static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteri
 
   Serial.printf("Server (%s) Notified Humidity: ", ServerAddressStr.c_str());
   char* humidityChar = (char*)pData;
+  humidityChar[6] = '\0';
   std::string HumString = humidityChar;
   Serial.printf("Humidity: %s %% \n", HumString.c_str());
   Serial.print("-> Call setHumChar: ");
   MyClientServerManager->setHumChar(ServerAddressStr, HumString, DateTimeString);
   Serial.println("");
 }
-
-
-
-
 int ClientServerManager::getNumberofClientServer() {
   return TotalClientServer;
 }
-
 bool ClientServerManager::contains(std::string ServerStr) {  // Method/function defined inside the class
   Serial.print("Contains ServerStr: @BLEAddressName ");
   if (ServerStr == "") {
@@ -242,8 +219,6 @@ bool ClientServerManager::contains(std::string ServerStr) {  // Method/function 
   }
   return false;
 }
-
-
 bool ClientServerManager::contains(BLEAddress* Server) {  // Method/function defined inside the class
   Serial.print("Contains Server: @BLEAddress ");
   for (int i = 0; i < sizelimit; i++) {
@@ -259,7 +234,6 @@ bool ClientServerManager::contains(BLEAddress* Server) {  // Method/function def
   }
   return false;
 }
-
 int ClientServerManager::contains(BLEClient* client) {  // Method/function defined inside the class
   Serial.print("Contains Client: @BLEClient ");
   for (int i = 0; i < sizelimit; i++) {
@@ -277,7 +251,6 @@ int ClientServerManager::contains(BLEClient* client) {  // Method/function defin
   }
   return -1;
 }
-
 bool ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) {  // Method/function defined inside the class
 
   Serial.print("Contains AdvDev: @BLEAdvDevice ");
@@ -299,7 +272,6 @@ bool ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) {  // Method/fun
   }
   return false;
 }
-
 void ClientServerManager::addDevice(BLEAdvertisedDevice* AdvDev) {
   if (contains(AdvDev)) {
     Serial.println("addDevice: Device Already Configured");
@@ -317,7 +289,6 @@ void ClientServerManager::addDevice(BLEAdvertisedDevice* AdvDev) {
     return;
   }
 }
-
 void ClientServerManager::removeDevice(BLEClient* client) {
   int index = contains(client);
   if (index==-1) {
@@ -339,7 +310,6 @@ void ClientServerManager::removeDevice(BLEClient* client) {
     Serial.println("");
   }
 }
-
 void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddress* AdvServerAdress) {
   Serial.println("[[ServerConnect]]");
   Serial.printf("Attempting to connect: %s ", AdvDev->getName().c_str());
@@ -406,7 +376,6 @@ void ClientServerManager::connectToServer(BLEAdvertisedDevice* AdvDev, BLEAddres
   Serial.println("Cannot find the Server to connect (End of Array)\n");
   return;
 }
-
 void ClientServerManager::tryConnect() {
   Serial.println("[[ConnectALL]]");
   Serial.print("TryConnect: ");
@@ -434,7 +403,6 @@ void ClientServerManager::tryConnect() {
   Serial.println("No Server to connect! (End of Array)");
   return;
 }
-
 bool ClientServerManager::check() {
   Serial.println("[[ServerCheck]]");
   Serial.print("ServerCheck: ");
@@ -448,7 +416,6 @@ bool ClientServerManager::check() {
     return false;
   }
 }
-
 void ClientServerManager::setTempChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
   Serial.printf("Setting Temp Char for Server(%s): \n", Server.c_str());
   Serial.print("First Server: ");
@@ -472,7 +439,6 @@ void ClientServerManager::setTempChar(std::string Server, std::string Value, Str
   }
   return;
 }
-
 void ClientServerManager::setHumChar(std::string Server, std::string Value, String DateTimeString) {  // Method/function defined inside the class
 
   Serial.printf("Setting Hum Char for Server(%s): \n", Server.c_str());
@@ -497,12 +463,10 @@ void ClientServerManager::setHumChar(std::string Server, std::string Value, Stri
   }
   return;
 }
-
-
 //function that prints the latest sensor readings in the OLED display
-void ClientServerManager::printReadings() {
+void ClientServerManager::sendReadings() {
   Serial.println("[[SerialPrint]]");
-  Serial.print("PrintReadings: ");
+  Serial.print("SendReadings: ");
   for (int i = 0; i < sizelimit; i++) {
     if (ServerAddressList[i] == nullptr) {
       Serial.println("No More Server to print!\n");
@@ -522,7 +486,6 @@ void ClientServerManager::printReadings() {
   }
   return;
 }
-
 void switchprintf(const char* main, const char* format, bool bswitch) {
   if (bswitch) {
     Serial.printf(main, format);
@@ -538,8 +501,6 @@ void switchprintln(const char* main, bool bswitch) {
     Serial.println(main);
   }
 }
-
-
 //Callback function that gets called, when another device's advertisement has been received
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
@@ -568,45 +529,35 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
     }*/
   }
 };
-
 void rescan(BLEScan* pBLEScan, int waittime) {
   pBLEScan->start(waittime, false);
   Serial.println("Attempting Rescan......");
   return;
 }
-
-WiFiMulti WiFiMulti;
-
 void setup() {
+  //Initialise LED1 and LED2, Turn on LED1
+  pinMode(ledPin1, OUTPUT);
+  pinMode(ledPin2, OUTPUT);
+  digitalWrite(ledPin1, HIGH);
+
   //Start serial communication
   Serial.begin(115200);
   Serial.println();
+  Serial.println("Starting Arduino BLE Client application...");  
   Serial.print("ESP Board MAC Address:  ");
   Serial.println(WiFi.macAddress());
 
-  //pinMode(ledPin1, OUTPUT);
-  //digitalWrite(ledPin1, HIGH);
-
-  Serial.println("Starting Arduino BLE Client application...");
-  WiFi.mode(WIFI_STA);
-  
+  //Starts WiFi Connection
+    WiFi.mode(WIFI_STA);  
   WiFi.begin(ssid, password);
-
-  //WiFiMulti.addAP(ssid, password);  // Change to reflect hotspot/home network
-
-  // wait for WiFi connection
   Serial.printf("Connecting to %s", ssid);
-
   while ( WiFi.status() != WL_CONNECTED ) {
     delay ( 500 );
     Serial.print ( "." );
-  }
-
-  /*while ((WiFiMulti.run() != WL_CONNECTED)) {
-    Serial.print(".");
-  }*/
+  } 
   Serial.println(" connected");
 
+  //Starts NTP Client
   timeClient.begin();
   while (!timeClient.update()) {
     timeClient.forceUpdate();
@@ -616,7 +567,7 @@ void setup() {
   BLEDevice::init("");
   // Retrieve a Scanner and set the callback we want to use to be informed when we
   // have detected a new device.  Specify that we want active scanning and start the
-  // scan to run for 30 seconds.
+  // scan to run for 5 seconds.
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setInterval(1349);
@@ -624,10 +575,11 @@ void setup() {
   pBLEScan->setActiveScan(true);
   pBLEScan->start(5, false);
 }
-
 void loop() {
+  digitalWrite(ledPin2, HIGH);
   int waittime = 5;
   if ((millis() - lastTime) > loggingInterval) {
+    digitalWrite(ledPin2, HIGH);
     if (MyClientServerManager->getNumberofClientServer() == 0) {
       rescan(pBLEScan, waittime);
       return;
@@ -637,9 +589,12 @@ void loop() {
     }
     MyClientServerManager->tryConnect();
 
-    MyClientServerManager->printReadings();
+    MyClientServerManager->sendReadings();
 
     lastTime = millis();
+    delay(500);
+    
+    digitalWrite(ledPin2, LOW);
   }
-  //delay(3000);  // Delay a second between loops.
+  delay(3000);  // Delay a second between loops.
 }

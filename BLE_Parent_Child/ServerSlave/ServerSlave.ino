@@ -22,8 +22,6 @@
 
 //BLE server name
 std::string bleServerName = "Child_1";
-//BLE server name 2
-//#define bleServerName "Child_1"
 
 Adafruit_BME280 bme; // I2C
 
@@ -35,7 +33,7 @@ float hum;
 unsigned long lastTime = 0;
 
 //Logging Checking Interval
-unsigned long loggingInterval = 3000;
+unsigned long loggingInterval = 10000;
 
 bool deviceConnected = false;
 
@@ -156,6 +154,10 @@ void loop() {
         Serial.print("Temperature Celsius: ");
         Serial.print(temp);
         Serial.print(" deg C");
+        Serial.print("  <");
+        Serial.print(&temperatureCTemp[0]);
+        Serial.print(">  ");
+        Serial.print(sizeof(temperatureCTemp));
       #else
         static char temperatureFTemp[6];
         dtostrf(tempF, 6, 2, temperatureFTemp);
@@ -165,17 +167,23 @@ void loop() {
         Serial.print("Temperature Fahrenheit: ");
         Serial.print(tempF);
         Serial.print(" ºF");
+        Serial.print("  <");
+        Serial.print(&temperatureFTemp[0]);
+        Serial.print(">");
       #endif
       
       //Notify humidity reading from BME
-      static char humidityTemp[6];
+      static char humidityTemp[7];
       dtostrf(hum, 6, 2, humidityTemp);
       //Set humidity Characteristic value and notify connected client
       bmeHumidityCharacteristics.setValue(humidityTemp);
       bmeHumidityCharacteristics.notify();   
       Serial.print(" - Humidity: ");
       Serial.print(hum);
-      Serial.println(" %");
+      Serial.print(" %");
+      Serial.print("  <");
+      Serial.print(&humidityTemp[0]);
+      Serial.println(">");
       
       lastTime = millis();
     }
