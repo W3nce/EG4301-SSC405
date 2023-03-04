@@ -1,0 +1,11 @@
+DeepSleep
+GPS
+GetNTPtime
+LED
+Save in SD
+Post Data
+
+(Not Done)
+Test SHT30
+Battery power consumption
+ halfway (Need more work)
