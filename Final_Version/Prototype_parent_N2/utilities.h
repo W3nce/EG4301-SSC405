@@ -2,9 +2,9 @@
 #define DEVICE_NAME "Parent_InitCONN_LED";
 
 //Deep Sleep Time/ logging frequency
-#define uS_TO_S_FACTOR      1000000  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP       30         /* Time ESP32 will go to sleep (in seconds) */
-#define READING_BEFORE_SEND 2
+#define uS_TO_S_FACTOR      1000000   /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP       30        /* Time ESP32 will go to sleep (in seconds) */
+#define READING_BEFORE_SEND 2         /* Number of readings before mass posting */
 
 #define UART_BAUD           115200
 
@@ -20,12 +20,11 @@
 //LED PIN
 // #define LED_PIN             12 //(LilyGO ESP32 Wrover Mod)
 // #define LED_PIN             17 //(ESP32 Wroom32D Dev Mod)
-#define LED_PIN_MAIN              12
-#define LED_PIN_GREEN_1           13
-#define LED_PIN_GREEN_2           26
-#define LED_PIN_GREEN_3           25
-#define LED_PIN_GREEN_3           25
-#define StartLogButton            14
+#define LED_PIN_MAIN              15
+#define LED_PIN_GREEN_1           14
+#define LED_PIN_GREEN_2           13
+#define LED_PIN_GREEN_3           12
+#define StartLogButton            2
 
 #define TINY_GSM_MODEM_SIM7600
 
@@ -37,11 +36,12 @@
 // Libraries to connect to WiFi and send Readings to the Cloud
 #include <ArduinoHttpClient.h>
 
+void InitLED();
 void OffAll();
 void OnAll();
-void flashOnce(int pin_num , int milliSec);
-void Blink(int pin_num , int milliSec);
-void Bounce();
+void Flash();
+void ToggleLEDState(bool states[],int len);
+void GetLEDState(bool states[],int len);
 void print_wakeup_reason();
 void Debugf(const char* main, const char* format, bool bswitch);
 void Debug(const char* main, bool bswitch);

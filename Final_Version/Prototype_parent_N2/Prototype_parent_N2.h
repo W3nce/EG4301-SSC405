@@ -101,7 +101,6 @@ class ClientServerManager {
     bool                      checkAllReady();
     void                      setTempChar(std::string Server,std::string Value);
     void                      setHumChar(std::string Server,std::string Value);
-    // bool                      checkReadings();
     void                      sendReadings(int &currdatacount);
     void                      storeAllReadings(int &currdatacount);
 };

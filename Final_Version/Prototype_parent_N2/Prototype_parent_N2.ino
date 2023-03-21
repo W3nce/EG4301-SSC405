@@ -36,7 +36,7 @@
 #endif
 
 #define CurrShippingID      5
-#define HRS_TO_SLEEP        8
+// #define HRS_TO_SLEEP        8
 
 //Activate notify
 const uint8_t notificationOn[] = { 0x1, 0x0 };
@@ -69,7 +69,7 @@ RTC_DATA_ATTR static char add2[ServerAddressLength + 1] = "00:00:00:00:00:00";
 RTC_DATA_ATTR static char add3[ServerAddressLength + 1] = "00:00:00:00:00:00";
 RTC_DATA_ATTR static char * ServerAddressArray[sizelimit_def] = { add1, add2, add3};
 
-int LED_arr[] = {LED_PIN_MAIN,LED_PIN_GREEN_1,LED_PIN_GREEN_2,LED_PIN_GREEN_3};
+uint8_t LED_arr[] = {LED_PIN_MAIN,LED_PIN_GREEN_1,LED_PIN_GREEN_2,LED_PIN_GREEN_3};
 
 //Allocate for storing current date and timec bad location
 static String currDateTimePOST = "1970-01-01:00:00%2B00:00";
@@ -148,11 +148,11 @@ class MyClientCallback : public BLEClientCallbacks {
 };
 
 void setup(){
-  //Init BLE device
+  // Init BLE device
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
-  
-  pinMode(12, OUTPUT);
-  digitalWrite(12, LOW);
+
+  // Check LED
+  InitLED();
 
   BLEDevice::init("");
   delay(500);
@@ -195,6 +195,7 @@ void setup(){
     if (MyClientServerManager->getNumberofClientServer() > 0){
       ClientMasterInit = true;
     }
+
   }
 
   else if (ClientMasterInit){
@@ -205,9 +206,9 @@ void setup(){
     Serial.print("[[START WITHOUT CHILDREN]]");
   }
   
+  Serial.println("[[CONNECT ALL SAVED DEVICES]]");
   connect_All();
-
-  Serial.println("Connected");
+  Serial.println("[[CONNECTION COMPLETE]]");
 
   MyClientServerManager->checkAllConnected();
   SDInit = SD_init(MyClientServerManager->TotalConnectedClientServer, SDInit);
@@ -219,7 +220,6 @@ void setup(){
   getValues();
   printReading("BLE Parent", String(temp).c_str(), String(hum).c_str());
 
-  // MyClientServerManager->checkReadings();
   MyClientServerManager->sendReadings(datacount);
   MyClientServerManager->storeAllReadings(datacount);
   datacount++;
@@ -269,17 +269,22 @@ bool in_ServerAddressArray(const char * TargetServerCharArray){
 }
 
 void connect_All(){
-  Serial.println("@Connect_All: Connecting to all Server");  
+  Serial.println("@Connect_All: Connecting to all Server"); 
+  bool states[] = {false, false, false, false};
+  GetLEDState(states,sizelimit_def+1);
   for (int i = 0 ; i < sizelimit_def ; i++){
+    Flash(i+1,300);
     Serial.print(">> Connecting to Server ");
     Serial.println(i + 1);
     if (MyClientServerManager->MyClientServerList[i]->IsInit && !MyClientServerManager->MyClientServerList[i]->IsConnected){
 
       if(connect_Server(MyClientServerManager->MyClientServerList[i]->pClient, MyClientServerManager->MyClientServerList[i]->pAdvertisedDevice))
       {
+        states[i+1] = true;
       MyClientServerManager->MyClientServerList[i]->IsConnected = true;      
       MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady = true;
       };
+      ToggleLEDState(states,sizelimit_def+1);
     }
   }
   Serial.print(">> End Server Connection: All Connected - ");   
@@ -327,6 +332,7 @@ bool connect_Server(BLEClient * client_test, BLEAdvertisedDevice * advdev_test){
 
   MyClientServerManager->TotalConnectedClientServer = MyClientServerManager->TotalConnectedClientServer + 1;
 
+  Serial.println("\t>> End Server Connection: Server connected"); 
   return true;
 }
 
@@ -504,12 +510,6 @@ void ClientServerManager::setHumChar(std::string Server, std::string Value) {
   return;
 }
 
-// bool ClientServerManager::checkReadings(){
-//   Serial.println("@ClientServerManager::checkReadings: Check and Average");  
-    
-//   Serial.println("End checkReadings: Done");  
-// }
-
 void ClientServerManager::sendReadings(int &currdatacount ) {
   Serial.println("@ClientServerManager::sendReadings: Check and Post All");  
 
@@ -522,11 +522,11 @@ void ClientServerManager::sendReadings(int &currdatacount ) {
 
   AverageReadings();
 
-  //Start Modem and GPRS, Get GPS and Datetime, Post to Cloud
-  Serial.println("(int)(currdatacount-dataindex_last + 1)");
-  Serial.println((int)(currdatacount-dataindex_last + 1));
-  Serial.println("(int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND)");
-  Serial.println((int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND);
+  // Start Modem and GPRS, Get GPS and Datetime, Post to Cloud
+  // Serial.println("(int)(currdatacount-dataindex_last + 1)");
+  // Serial.println((int)(currdatacount-dataindex_last + 1));
+  // Serial.println("(int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND)");
+  // Serial.println((int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND);
 
   if (0 == (int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND || (currdatacount == 0 && dataindex_last == 0)){
     Serial.println("\t>> Use DTR Pin Wakeup");
@@ -1324,6 +1324,22 @@ void GetNextTime(){
 
 /*MISC*/
 
+  void InitLED(){
+    for (int ind = 0; ind <= sizelimit_def ;ind++){
+      pinMode(LED_arr[ind], OUTPUT);
+      digitalWrite(LED_arr[ind], HIGH);
+      delay(400);
+    };
+    delay(400);
+    OffAll();
+    delay(500);
+    OnAll();
+    delay(500);
+    bool temp[] = {true ,false ,false, false};
+    ToggleLEDState(temp,sizelimit_def+1);
+
+  }
+
   void OffAll(){
       for (int ind = 0; ind <= sizelimit_def ;ind++){
       digitalWrite(LED_arr[ind],LOW); 
@@ -1341,33 +1357,36 @@ void GetNextTime(){
     // digitalWrite(LED_PIN_GREEN_3, HIGH);
 
   }
+  //1,2,3
+  void Flash(int LED_NO, int del){
+    if (LED_NO>sizelimit_def){
+      Serial.println("Invalid LED_NO (0,1,2,3 Only)");
+      return;
+    }
 
-  void flashOnce(int pin_num , int milliSec){  
-    digitalWrite(pin_num, HIGH);
-    delay(milliSec);
-    digitalWrite(pin_num, LOW);
-  }
-
-  void Blink(int pin_num , int milliSec){  
-    digitalWrite(pin_num, HIGH);
-    delay(milliSec);
-    digitalWrite(pin_num, LOW);
-    delay(milliSec);
-  }
-
-  void Bounce(){
-    int ind = 0 ;
-    int del = 300;
-    for (; ind < sizelimit_def + 1 ;ind++){
-      Serial.println(String(ind));
-      flashOnce(LED_arr[ind],del); 
-    };
-    
-    for (ind = sizelimit_def - 1 ; ind >= 0 ;ind--){
-      Serial.println(String(ind));
-      flashOnce(LED_arr[ind],del); 
-    };
+    digitalWrite(LED_arr[LED_NO],digitalRead(LED_arr[LED_NO])?LOW : HIGH); 
     delay(del);
+    digitalWrite(LED_arr[LED_NO],digitalRead(LED_arr[LED_NO])?LOW : HIGH); 
+  }
+
+  void ToggleLEDState(bool states[],int len){
+    if (len>sizelimit_def + 1){
+      Serial.println("Invalid length (max: 4)");
+      return;
+    }
+    for (int ind = 0; ind < len ;ind++){
+      digitalWrite(LED_arr[ind], states[ind]?HIGH:LOW);
+    };
+  }
+  
+  void GetLEDState(bool states[],int len){
+    if (len>sizelimit_def + 1){
+      Serial.println("Invalid length (max: 4)");
+      return;
+    }
+    for (int ind = 0; ind < len ;ind++){
+      states[ind] = digitalRead(LED_arr[ind]);
+    };
   }
 
   void Debugf(const char* main, const char* format, bool bswitch) {
