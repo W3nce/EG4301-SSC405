@@ -1,5 +1,6 @@
-
 #include "Prototype_parent_N2.h"
+#include "utilities.h"
+#include "debug_utils.h"
 #include "UARTSerial_utils.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
@@ -36,13 +37,10 @@
 #endif
 
 #define CurrShippingID      5
-// #define HRS_TO_SLEEP        8
 
 //Activate notify
 const uint8_t notificationOn[] = { 0x1, 0x0 };
 const uint8_t notificationOff[] = { 0x0, 0x0 };
-
-bool connected = false;
 
 //Scan Object Pointer
 static BLEScan* pBLEScan;
@@ -78,56 +76,53 @@ static float CurrLat = 0.00;
 static float CurrLong = 0.00;
 static float CurrTemp_Cloud;
 static float CurrHum_Cloud;
+static unsigned int startTime;
 
 //Callback function that gets called, when another device's advertisement has been received
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {  
 
     const char * ServerFound = advertisedDevice.getName().c_str();
+    bool connected = false;
 
     if (advertisedDevice.haveName() 
     && advertisedDevice.haveServiceUUID() 
     && advertisedDevice.getServiceUUID().equals(bmeServiceUUID) 
-    && in_ServerAddressArray(ServerFound)
-    ){ 
-      // advertisedDevice.getAddress().toString().c_str()
-
+    && in_ServerAddressArray(ServerFound))
+    { 
       //Check if the name of the advertiser matches
-      Serial.println("@AdvDevCallbacks: Found BLE Advertised Device ");  
+      Debugln("@AdvDevCallbacks:\tFound BLE Advertised Device ", true);  
 
       if(ClientMasterInit 
       ){
-        Serial.println("\t>> Exisiting Device found ");
         BLEAdvertisedDevice* NewDev = new BLEAdvertisedDevice(advertisedDevice);
 
-        Serial.println("\t>> Adding Device");      
+        Debugln("\t>> Adding Exisiting Device", true);      
         connected = MyClientServerManager->addDevice(NewDev);
-        Debugln(" ", TurnOnScanResults);    
+        Debugln(connected?"Success":"Failed", true);    
       }
 
-      // && !in_ServerAddressArray(advertisedDevice.getAddress().toString().c_str())
       else if (!ClientMasterInit 
       && (MyClientServerManager->contains(&advertisedDevice) == -1) 
       ){
         advertisedDevice.getScan()->stop();
-        Serial.println("\t>> Initial Device found ");
         BLEAdvertisedDevice* NewDev = new BLEAdvertisedDevice(advertisedDevice);
 
-        Serial.println("\t>> Adding Device");
+        Debugln("\t>> Adding New Device",true);
         connected = MyClientServerManager->addDevice(NewDev);
-        Debugln(" ", TurnOnScanResults);        
+        Debugln(connected?"Success":"Failed", true);        
       }
       
       else {
-      Debugln(">> End CallBack: Device UUID/Name Unmatch! ", TurnOnScanResults);
+      Debugln(">> End CallBack:\tDevice UUID/Name Unmatch! ", TurnOnScanResults);
       return;
       }
 
       //Scan can be stopped, if all found
       if (MyClientServerManager->getNumberofClientServer() == sizelimit_def) {
-        Serial.println("\t>> Stopping Scan");
+        Debugln("\t>> Stopping Scan",true);
         advertisedDevice.getScan()->stop();
-        Debugln(">> End CallBack: All Device Added", TurnOnScanResults); 
+        Debugln(">> End CallBack:\tAll Device Added", true); 
         return;
       }
       return;
@@ -138,16 +133,17 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 
 class MyClientCallback : public BLEClientCallbacks {
   void onConnect(BLEClient* pclient) {
-    Debugln(">> ClientCallBack: onConnect",true);
+    Debugln(">> ClientCallBack:\tonConnect",true);
   }
 
   void onDisconnect(BLEClient* pclient) {
-    Debugln(">> ClientCallBack: onDisconnect",true);
+    Debugln(">> ClientCallBack:\tonDisconnect",true);
     //MyClientServerManager->removeDevice(pclient);
   }
 };
 
 void setup(){
+  unsigned int setupTime = millis();
   // Init BLE device
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
 
@@ -155,7 +151,6 @@ void setup(){
   InitLED();
 
   BLEDevice::init("");
-  delay(500);
   //Start serial communication
   Serial.begin(UART_BAUD);
   // Serial1.begin(UART_BAUD, SERIAL_8N1, BOARD_RX, BOARD_TX);
@@ -178,6 +173,8 @@ void setup(){
 
   /* INITIALISING DONE *////////////////////////////////////////////////////////
 
+  //Saves the current time in milliSeconds
+  startTime = millis();
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setInterval(1349);
@@ -203,7 +200,7 @@ void setup(){
       pBLEScan->start(10, false);
   }
   else {
-    Serial.print("[[START WITHOUT CHILDREN]]");
+    Serial.println("[[START WITHOUT CHILDREN]]");
   }
   
   Serial.println("[[CONNECT ALL SAVED DEVICES]]");
@@ -211,554 +208,615 @@ void setup(){
   Serial.println("[[CONNECTION COMPLETE]]");
 
   MyClientServerManager->checkAllConnected();
-  SDInit = SD_init(MyClientServerManager->TotalConnectedClientServer, SDInit);
-  
+  Serial.println("[[CONNECTION CHECK COMPLETE]]");
+
+  SDInit = SD_init(MyClientServerManager->TotalConnectedClientServer, SDInit);  
+  Serial.println("[[SD INIT COMPLETE]]");
   /* PAIRING AND SD INITILISE DONE *////////////////////////////////////////////
 
+  //Saves the current time in milliSeconds
+  startTime = millis();
   Sensor_Start();
   Serial.println("\t>> Sensor Initialised, Start Reading ");
   getValues();
+  Serial.println("[[START SENSOR & GET READING]]");
   printReading("BLE Parent", String(temp).c_str(), String(hum).c_str());
 
-  MyClientServerManager->sendReadings(datacount);
-  MyClientServerManager->storeAllReadings(datacount);
-  datacount++;
-  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR ); 
-    
-  Serial.println("Setup ESP32 to sleep for every " + 
-  //String((TimeDiff < 0 ? 0 : TimeDiff)) + 
-  String(TIME_TO_SLEEP) +
-  " Seconds");
+  int sendReadingsRes = MyClientServerManager->sendReadings(datacount);
+  switch (sendReadingsRes)
+  {
+    case 0:
+      Serial.println("[[READINGS SENT]]");
+      break;
 
-  Serial.println("Going to sleep in");
-  for (int i = 5 ; i > 0 ; i--){
-    Serial.println(String(i)+"...");
-    delay(1000);
+    case 1:
+      Serial.println("[[READINGS SKIPPED]]");
+      break;
+
+    case 2:
+      Serial.println("[[READINGS FAILED TO SEND]]");
+      break;
+
+    default:
+      Serial.println("[[READINGS GOING CRAZY]]");
+      break;
   }
+  if (MyClientServerManager->storeAllReadings(datacount)){
+    Serial.println("[[READINGS STORED]]");    
+  } 
+  else {
+    Serial.println("[[READINGS STORE ERROR]]");  
+  }
+  datacount++;
 
-  Serial.flush();  
+  //Start Deep Sleep for (TIME_TO_SLEEP - TIME_TAKEN_TO_RUN_PROGRAM)
+  float TimeDiff = (float)TIME_TO_SLEEP - ((float)(millis() - startTime) / 1000) ;
+  if (TimeDiff < 0) {
+    Serial.println("Program took" + String(-TimeDiff)+
+    "Seconds more than Sleep Time ("+String(TIME_TO_SLEEP)+"s)");    
+    esp_sleep_enable_timer_wakeup(0);
+
+  } else {
+    int SleepTimeMS = TimeDiff * uS_TO_S_FACTOR;
+    esp_sleep_enable_timer_wakeup(SleepTimeMS);
+
+  }
+  Serial.println("Setup ESP32 to sleep for " + String((TimeDiff<0?0:TimeDiff)) + " Seconds");
+  Serial.flush();
+  Serial.print(String(millis() - startTime).c_str());
+  Serial.printf(" MilliSeconds Taken after Disconnect (Total %s MilliSeconds)\n", String(millis()-setupTime).c_str());
+  Serial.println("[[GOING TO SLEEP]]");  
   esp_deep_sleep_start();
 }
 
 void loop(){
 }
 
-int strcicmp(char const *a, char const *b){
-    for (;; a++, b++) {
-        int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
-        if (d != 0 || !*a)
-            return d;
-    }
-}
 
-bool in_ServerAddressArray(const char * TargetServerCharArray){
-  int ind = 0 ; 
-  while (ind < sizelimit_def){
-    std::string myserver = ServerAddressArray[ind];
-    std::string tarserver = TargetServerCharArray;
-    std::string empserver =  "00:00:00:00:00:00";
-    if (tarserver != empserver && strcmp(ServerAddressArray[ind], TargetServerCharArray) == 0){
-      Serial.print(myserver.c_str());
-      Serial.print(" Registered : Found ");
-      Serial.println(tarserver.c_str());
-      return true;
-    }
-    ind++;
-  }
-  return false;
-}
-
-void connect_All(){
-  Serial.println("@Connect_All: Connecting to all Server"); 
-  bool states[] = {false, false, false, false};
-  GetLEDState(states,sizelimit_def+1);
-  for (int i = 0 ; i < sizelimit_def ; i++){
-    Flash(i+1,300);
-    Serial.print(">> Connecting to Server ");
-    Serial.println(i + 1);
-    if (MyClientServerManager->MyClientServerList[i]->IsInit && !MyClientServerManager->MyClientServerList[i]->IsConnected){
-
-      if(connect_Server(MyClientServerManager->MyClientServerList[i]->pClient, MyClientServerManager->MyClientServerList[i]->pAdvertisedDevice))
-      {
-        states[i+1] = true;
-      MyClientServerManager->MyClientServerList[i]->IsConnected = true;      
-      MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady = true;
-      };
-      ToggleLEDState(states,sizelimit_def+1);
-    }
-  }
-  Serial.print(">> End Server Connection: All Connected - ");   
-  Serial.printf("Total Device Connected: %d / %d Devices \n", MyClientServerManager->TotalConnectedClientServer, sizelimit_def);
-}
-
-bool connect_Server(BLEClient * client_test, BLEAdvertisedDevice * advdev_test){
-  Serial.println("\t>> Set and Create Client ");
-  client_test = BLEDevice::createClient();
-  client_test->setClientCallbacks(new MyClientCallback()); 
-
-  Serial.println("\t>> Connect to server "); 
-  client_test->connect(advdev_test); 
-
-  Serial.println("\t>> Get BME Service"); 
-  BLERemoteService* pRemoteService = client_test->getService(bmeServiceUUID);
-  if (pRemoteService == nullptr) {
-    Serial.println("\t\t>>Failed to find our service UUID: ");
-    Serial.println(bmeServiceUUID.toString().c_str());
-    Serial.println(">> End Server Connection: Fail BME Service not found");   
-    return (false);
-  }
- 
-  // Obtain a reference to the characteristics in the service of the remote BLE  server.
-  Serial.println("\t>> Get Characteristics"); 
-  BLERemoteCharacteristic* TempChar = pRemoteService->getCharacteristic(temperatureCharacteristicUUID);
-  BLERemoteCharacteristic* HumChar = pRemoteService->getCharacteristic(humidityCharacteristicUUID);
-
-  if (TempChar == nullptr || HumChar == nullptr) {
-    Serial.println("\t\t>> Failed to find our characteristic UUID");
-    Serial.println(">> End Server Connection: Fail Characteristic not found"); 
-    return false;
-  }
- 
-  Serial.println("\t>> Assign Notification Callback Functions"); 
-  //Assign callback functions for the Characteristics
-  TempChar->registerForNotify(temperatureNotifyCallback);
-  HumChar->registerForNotify(humidityNotifyCallback);
-
-  
-  Serial.println("\t>> Register Characteristics for Notify"); 
-  //Activate the Notify property of each Characteristic
-  TempChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)notificationOn, 2, true);
-  HumChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)notificationOn, 2, true);
-
-  MyClientServerManager->TotalConnectedClientServer = MyClientServerManager->TotalConnectedClientServer + 1;
-
-  Serial.println("\t>> End Server Connection: Server connected"); 
-  return true;
-}
-
-ClientServer::ClientServer(){
-  Serial.println("@ClientServer::ClientServer: Initialising ClientServer Object ");    
-  Serial.println(">> End Initialisation"); 
-}
-
-void ClientServer::setDevice(BLEAdvertisedDevice *p_AdvertisedDevice){
-  Serial.println("@ClientServer::setDevice: Setting Device"); 
-  Serial.println("\t>> Set Adv Device ");     
-  pAdvertisedDevice = p_AdvertisedDevice;
-  Serial.println("\t>> Set BLE Address ");     
-  pServerAddress = new BLEAddress(p_AdvertisedDevice->getAddress());
-  
-  Serial.println(">> End Device Set");    
-}
-
-// bool ClientServer::connectServer(){
-// }
-
-ClientServerManager::ClientServerManager(){
-  Serial.println("@ClientServerManager::ClientServerManager: Initialising"); 
-  Serial.println("\t>> Assign 1 Clients to MyClientServer ");   
-  MyClientServerList[0] = &Client_Test1;
-  MyClientServerList[1] = &Client_Test2;
-  MyClientServerList[2] = &Client_Test3;
-  Serial.println(">> End Initialisation"); 
-}
-
-int ClientServerManager::getNumberofClientServer() {
-  return TotalClientServer;
-}
-
-bool ClientServerManager::addDevice(BLEAdvertisedDevice *pAdvDev){
-  Serial.println("@ClientServerManager::addDevice: Adding Device");
-
-  for (int i = 0 ; i < sizelimit ; i++){
-    if (!MyClientServerList[i]->IsInit){
-      Serial.print("\t>> Found and setDevice for Client_Test ");  
-      Serial.print(i);
-      Serial.println(" with pAdvDev ");  
-      MyClientServerList[i]->setDevice(pAdvDev);
-      MyClientServerList[i]->IsInit = true;
-
-      strcpy(ServerAddressArray[i], pAdvDev->getAddress().toString().c_str());
-
-      TotalClientServer = TotalClientServer + 1;
-
-      Serial.println("\t>> Added ");
-      Serial.printf(">> %s - %s\n", pAdvDev->getName().c_str(), pAdvDev->getAddress().toString().c_str());
-      Serial.print(">> End addDevice: Success - "); 
-      Serial.printf("Total Device Added: %d / %d Devices \n", TotalClientServer, sizelimit_def);
-
-      return true;
-    }
-  }
-  return false;
-  Serial.println(">> End addDevice: Fail"); 
-}
-
-int ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) { 
-
-  Debugln("@ClientServerManager::contains(BLEAdvDevice) ",TurnOnScanResults);
-  for (int i = 0; i < sizelimit_def; i++) {
-    if (MyClientServerList[i]->IsInit){
-      BLEAddress OtherServer = *MyClientServerList[i]->pServerAddress;
-
-      if (AdvDev->getAddress().equals(OtherServer)) {
-        Debugln("\t>> BLEAdvDevice Found: true ",TurnOnScanResults);
-        return i;
+/* BLE Related functions */
+  int strcicmp(char const *a, char const *b){
+      for (;; a++, b++) {
+          int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+          if (d != 0 || !*a)
+              return d;
       }
-    }    
   }
+
+  bool in_ServerAddressArray(const char * TargetServerCharArray){
+    int ind = 0 ; 
+    while (ind < sizelimit_def){
+      std::string myserver = ServerAddressArray[ind];
+      std::string tarserver = TargetServerCharArray;
+      std::string empserver =  "00:00:00:00:00:00";
+      if (tarserver != empserver && strcmp(ServerAddressArray[ind], TargetServerCharArray) == 0){
+        Serial.print(myserver.c_str());
+        Serial.print(" Registered :\tFound ");
+        Serial.println(tarserver.c_str());
+        return true;
+      }
+      ind++;
+    }
+    return false;
+  }
+
+  void connect_All(){
+    Debugln("@Connect_All:\tConnecting to all Server",true); 
+    bool states[] = {false, false, false, false};
+    GetLEDState(states,sizelimit_def+1);
+    for (int i = 0 ; i < sizelimit_def ; i++){
+      Flash(i+1,300);
+      Debug(">> Connecting to Server ",TurnOnConnResults);
+      Debugln(String(i + 1).c_str(),TurnOnConnResults);
+      if (MyClientServerManager->MyClientServerList[i]->IsInit && !MyClientServerManager->MyClientServerList[i]->IsConnected){
+
+        if(connect_Server(MyClientServerManager->MyClientServerList[i]->pClient, MyClientServerManager->MyClientServerList[i]->pAdvertisedDevice))
+        {
+          states[i+1] = true;
+        MyClientServerManager->MyClientServerList[i]->IsConnected = true;      
+        MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady = true;
+        };
+        ToggleLEDState(states,sizelimit_def+1);
+      }
+    }
+    Debug(">> End Server Connection:\tAll Connected - ",true);   
+    Debugf("Total Device Connected:\t%d / ", MyClientServerManager->TotalConnectedClientServer,true); 
+    Debugf("%d Devices \n", sizelimit_def, true) ;
+  }
+
+  bool connect_Server(BLEClient * client_test, BLEAdvertisedDevice * advdev_test){
+    Debugln("\t>> Set and Create Client ",TurnOnConnResults);
+    client_test = BLEDevice::createClient();
+    client_test->setClientCallbacks(new MyClientCallback()); 
+
+    Debugln("\t>> Connect to server ",TurnOnConnResults); 
+    client_test->connect(advdev_test); 
+
+    Debugln("\t>> Get BME Service",TurnOnConnResults); 
+    BLERemoteService* pRemoteService = client_test->getService(bmeServiceUUID);
+    if (pRemoteService == nullptr) {
+      Debug("\t\t>>Failed to find our service UUID:\t",TurnOnConnResults);
+      Debugln(bmeServiceUUID.toString().c_str(),TurnOnConnResults);
+      Debugln(">> End Server Connection:\tFail BME Service not found",true);   
+      return (false);
+    }
   
-  Debugln(">> End contains(BLEAdvDevice): BLEAdvDevice not Found: false ",TurnOnScanResults);
-  return -1;
-}
+    // Obtain a reference to the characteristics in the service of the remote BLE  server.
+    Debugln("\t>> Get Characteristics",TurnOnConnResults); 
+    BLERemoteCharacteristic* TempChar = pRemoteService->getCharacteristic(temperatureCharacteristicUUID);
+    BLERemoteCharacteristic* HumChar = pRemoteService->getCharacteristic(humidityCharacteristicUUID);
 
-bool ClientServerManager::checkAllConnected() {
-  Serial.println("@ClientServerManager::checkAllConnected: Checking if All Server Connected");
-  Serial.print("\t>> ServerCheck: ");
-  if (sizelimit_def == TotalClientServer) {
-    Serial.printf(">> End checkAllConnected: All Server Connected: %d / %d Devices \n", TotalConnectedClientServer, sizelimit_def);
+    if (TempChar == nullptr || HumChar == nullptr) {
+      Debugln("\t\t>> Failed to find our characteristic UUID",TurnOnConnResults);
+      Debugln(">> End Server Connection:\tFail Characteristic not found",true); 
+      return false;
+    }
+  
+    Debugln("\t>> Assign Notification Callback Functions",TurnOnConnResults); 
+    //Assign callback functions for the Characteristics
+    TempChar->registerForNotify(temperatureNotifyCallback);
+    HumChar->registerForNotify(humidityNotifyCallback);
+
+    
+    Debugln("\t>> Register Characteristics for Notify",TurnOnConnResults); 
+    //Activate the Notify property of each Characteristic
+    TempChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)notificationOn, 2, true);
+    HumChar->getDescriptor(BLEUUID((uint16_t)0x2902))->writeValue((uint8_t*)notificationOn, 2, true);
+
+    MyClientServerManager->TotalConnectedClientServer = MyClientServerManager->TotalConnectedClientServer + 1;
+
+    Debugln("\t>> End Server Connection:\tServer connected",true); 
     return true;
-  } else {
-    Serial.printf(">> End checkAllConnected: Not all Server Connected: %d / %d Devices \n", TotalConnectedClientServer, sizelimit_def);
-    return false;
   }
-  Serial.println("");
-}
+////////////////////////////////////////////////////////////////////////////////
 
-bool ClientServerManager::checkAllReady() {
-  Serial.println("@ClientServerManager::checkAllReady: Checking if All Characteristics Ready");
-  int count = 0;
-  if (MyClientServerManager->getNumberofClientServer() == 0) {
-    Serial.println("No Server to check!");
-    return false;
+/* Internal ClientServer and ClientServerManager functions */
+  ClientServer::ClientServer(){
+    Serial.println("@ClientServer::ClientServer:\tInitialising ClientServer Object ");    
+    Serial.println(">> End Initialisation"); 
   }
-  for (int i = 0; i < sizelimit; i++) {
-    Serial.print("\t>> Next Server: ");
-    /* Testing Purpose
-      Serial.print(MyClientServerManager->MyClientServerList[i]->IsConnected ? "Conn - " : "!Conn - ");
-      Serial.print(MyClientServerManager->MyClientServerList[i]->IsInit ? "Init - " : "!Init - ");
-      Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady ? "Char - " : "!Char - ");
-      Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady ? "Temp - " : "!Temp - ");
-      Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady ? "Hum - " : "!Hum - ");
-    */
 
-    if (MyClientServerManager->MyClientServerList[i]->IsConnected
-      && MyClientServerManager->MyClientServerList[i]->IsInit
-      && MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady
-      && MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady
-      && MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady
-      ) {
+  void ClientServer::setDevice(BLEAdvertisedDevice *p_AdvertisedDevice){
+    Serial.println("@ClientServer::setDevice:\tSetting Device"); 
+    Serial.println("\t>> Set Adv Device ");     
+    pAdvertisedDevice = p_AdvertisedDevice;
+    Serial.println("\t>> Set BLE Address ");     
+    pServerAddress = new BLEAddress(p_AdvertisedDevice->getAddress());
+    
+    Serial.println(">> End Device Set");    
+  }
+
+  ClientServerManager::ClientServerManager(){
+    Serial.println("@ClientServerManager::ClientServerManager:\tInitialising"); 
+    Serial.println("\t>> Assign 1 Clients to MyClientServer ");   
+    MyClientServerList[0] = &Client_Test1;
+    MyClientServerList[1] = &Client_Test2;
+    MyClientServerList[2] = &Client_Test3;
+    Serial.println(">> End Initialisation"); 
+  }
+
+  int ClientServerManager::getNumberofClientServer() {
+    return TotalClientServer;
+  }
+
+  bool ClientServerManager::addDevice(BLEAdvertisedDevice *pAdvDev){
+    Debugln("@ClientServerManager::addDevice:\tAdding Device", TurnOnScanResults);
+
+    for (int i = 0 ; i < sizelimit ; i++){
+      if (!MyClientServerList[i]->IsInit){
+        Debugln("\t>> Found and setDevice for Client ", TurnOnScanResults);  
+        Debug(i+1, TurnOnScanResults);
+        Debugln(" with pAdvDev ", TurnOnScanResults);  
+        MyClientServerList[i]->setDevice(pAdvDev);
+        MyClientServerList[i]->IsInit = true;
+
+        strcpy(ServerAddressArray[i], pAdvDev->getAddress().toString().c_str());
+
+        TotalClientServer = TotalClientServer + 1;
+
+        Debug("\t>> Added ", TurnOnScanResults);
+        Debugf(">> %s - ", pAdvDev->getName().c_str(), TurnOnScanResults);
+        Debugf("%s\n", pAdvDev->getAddress().toString().c_str(), TurnOnScanResults);
+
+        Debug(">> End addDevice:\tSuccess - ", TurnOnScanResults); 
+        Debugf("Total Device Added:\t%d / ", TotalClientServer, TurnOnScanResults);
+        Debugf("%d Devices \n", sizelimit_def, true);
+
+        return true;
+      }
+    }
+    return false;
+    Debugln(">> End addDevice:\tFail",true); 
+  }
+
+  int ClientServerManager::contains(BLEAdvertisedDevice* AdvDev) { 
+
+    Debugln("@ClientServerManager::contains(BLEAdvDevice) ",TurnOnScanResults);
+    for (int i = 0; i < sizelimit_def; i++) {
+      if (MyClientServerList[i]->IsInit){
+        BLEAddress OtherServer = *MyClientServerList[i]->pServerAddress;
+
+        if (AdvDev->getAddress().equals(OtherServer)) {
+          Debugln("\t>> BLEAdvDevice Found:\ttrue ",TurnOnScanResults);
+          return i;
+        }
+      }    
+    }
+    
+    Debugln(">> End contains(BLEAdvDevice):\tBLEAdvDevice not Found:\tfalse ",TurnOnScanResults);
+    return -1;
+  }
+
+  bool ClientServerManager::checkAllConnected() {
+    Serial.println("@ClientServerManager::checkAllConnected:\tChecking if All Server Connected");
+    Serial.print("\t>> ServerCheck: ");
+    if (sizelimit_def == TotalClientServer && TotalConnectedClientServer == TotalClientServer) {
+      Serial.printf(">> End checkAllConnected: All Server Added & Connected: %d Connected/ %d Added Devices (Max %d) \n", TotalConnectedClientServer,TotalClientServer, sizelimit_def);
+      return true;
+    } else if (sizelimit_def != TotalClientServer && TotalConnectedClientServer == TotalClientServer){
+      Serial.printf(">> End checkAllConnected: All Server Connected, Not All Added: %d Connected/ %d Added Devices (Max %d) \n", TotalConnectedClientServer,TotalClientServer, sizelimit_def);
+      return false;
+    } else if (sizelimit_def != TotalClientServer && TotalConnectedClientServer != TotalClientServer){
+      Serial.printf(">> End checkAllConnected: Not All Server Connected, Not All Added: %d Connected/ %d Added Devices (Max %d) \n", TotalConnectedClientServer,TotalClientServer, sizelimit_def);
+      return false;
+    } else if (sizelimit_def == TotalClientServer && TotalConnectedClientServer != TotalClientServer){
+      Serial.printf(">> End checkAllConnected: Not All Server Connected, All Added: %d Connected/ %d Added Devices (Max %d) \n", TotalConnectedClientServer,TotalClientServer, sizelimit_def);
+      return false;
+    } 
+    Serial.println("");
+  }
+
+  bool ClientServerManager::checkAllReady() {
+    Serial.println("@ClientServerManager::checkAllReady:\tChecking if All Characteristics Ready");
+    int count = 0;
+    if (MyClientServerManager->getNumberofClientServer() == 0) {
+      Serial.println("No Server to check!");
+      return false;
+    }
+    for (int i = 0; i < sizelimit; i++) {
+      Serial.print("\t>> Next Server:\t");
+      /* Testing Purpose
+        Serial.print(MyClientServerManager->MyClientServerList[i]->IsConnected ? "Conn - " : "!Conn - ");
+        Serial.print(MyClientServerManager->MyClientServerList[i]->IsInit ? "Init - " : "!Init - ");
+        Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady ? "Char - " : "!Char - ");
+        Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady ? "Temp - " : "!Temp - ");
+        Serial.print(MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady ? "Hum - " : "!Hum - ");
+      */
+
+      if (MyClientServerManager->MyClientServerList[i]->IsConnected
+        && MyClientServerManager->MyClientServerList[i]->IsInit
+        && MyClientServerManager->MyClientServerList[i]->ReadyCheck.CharReady
+        && MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady
+        && MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady
+        ) {
+        std::string SavedServer = MyClientServerManager->MyClientServerList[i]->pServerAddress->toString();
+
+        Serial.printf("Checking Target ClientServer (%s) :\t", SavedServer.c_str());
+        Serial.println("Success:\tReady!");
+        count += 1;
+      } else {
+        Serial.println("Failed:\tNot Added/ Not Ready");
+      }
+    }
+    return count == MyClientServerManager->TotalConnectedClientServer;
+  }
+
+  void ClientServerManager::setTempChar(std::string Server, std::string Value){
+    // Method/function defined inside the class
+    Debugf("@ClientServerManager::setTempChar:\tSetting Temp Char for Server(%s):\t\n", Server.c_str(), TurnOnNotiResults);
+    if (MyClientServerManager->getNumberofClientServer() == 0) {
+      Debugln("No Server to set!", TurnOnNotiResults);
+      return;
+    }
+    for (int i = 0; i < sizelimit; i++) {
+      Debug("\t>> Next Server:\t", TurnOnNotiResults);
       std::string SavedServer = MyClientServerManager->MyClientServerList[i]->pServerAddress->toString();
 
-      Serial.printf("Checking Target ClientServer (%s) : ", SavedServer.c_str());
-      Serial.println("Success: Ready!");
-      count += 1;
-    } else {
-      Serial.println("Failed: Not Added/ Not Ready");
-    }
-  }
-  return count == MyClientServerManager->TotalConnectedClientServer;
-}
+      Debugf("Checking (%s) :\t", SavedServer.c_str(), TurnOnNotiResults);
 
-void ClientServerManager::setTempChar(std::string Server, std::string Value) {  
-  // Method/function defined inside the class
- Debugf("@ClientServerManager::setTempChar: Setting Temp Char for Server(%s): \n", Server.c_str(), TurnOnNotiResults);
-  if (MyClientServerManager->getNumberofClientServer() == 0) {
-    Debugln("No Server to set!", TurnOnNotiResults);
-    return;
-  }
-  for (int i = 0; i < sizelimit; i++) {
-    Debug("\t>> Next Server: ", TurnOnNotiResults);
-    std::string SavedServer = MyClientServerManager->MyClientServerList[i]->pServerAddress->toString();
-
-    Debugf("Checking (%s) : ", SavedServer.c_str(), TurnOnNotiResults);
-
-    if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
-      MyClientServerManager->MyClientServerList[i]->NewData.NewTemp = Value;
-      MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady = true;
-      Debugln("Success: TempChar Set for Print", true);
-      return;
-    } else {
-      Debug("Failed: Server Address Unmatch", TurnOnNotiResults);
-    }
-  }
-  return;
-}
-
-void ClientServerManager::setHumChar(std::string Server, std::string Value) {  
-  // Method/function defined inside the class
-  Debugf("@ClientServerManager::setHumChar: Setting Hum Char for Server(%s): \n", Server.c_str(), TurnOnNotiResults);
-
-  if (MyClientServerManager->getNumberofClientServer() == 0) {
-    Debugln("No Server to set!", TurnOnNotiResults);
-    return;
-  }
-
-  for (int i = 0; i < sizelimit; i++) {
-    Debug("\t>> Next Server: ", TurnOnNotiResults);
-    std::string SavedServer =  MyClientServerManager->MyClientServerList[i]->pServerAddress->toString();
-    Debugf("Checking (%s) : ", SavedServer.c_str(), TurnOnNotiResults);
-    if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
-      MyClientServerManager->MyClientServerList[i]->NewData.NewHum = Value;
-      MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady = true;
-      Debugln("Success: HumChar Set for Print", true);
-      return;
-    } else {
-      Debugln("Failed: Server Address Unmatch", TurnOnNotiResults);
-    }
-  }
-  return;
-}
-
-void ClientServerManager::sendReadings(int &currdatacount ) {
-  Serial.println("@ClientServerManager::sendReadings: Check and Post All");  
-
-  Serial.println("\t>> Checking that all ClientServer is Ready");
-  int checkStart = millis();
-  while (!MyClientServerManager->checkAllReady() && (millis()-checkStart)<1550) {
-    delay(500);
-    Serial.println("\t\t>> Not All Ready");
-  }
-
-  AverageReadings();
-
-  // Start Modem and GPRS, Get GPS and Datetime, Post to Cloud
-  // Serial.println("(int)(currdatacount-dataindex_last + 1)");
-  // Serial.println((int)(currdatacount-dataindex_last + 1));
-  // Serial.println("(int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND)");
-  // Serial.println((int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND);
-
-  if (0 == (int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND || (currdatacount == 0 && dataindex_last == 0)){
-    Serial.println("\t>> Use DTR Pin Wakeup");
-    pinMode(MODEM_DTR, OUTPUT);
-    //Set DTR Pin low , wakeup modem .
-    digitalWrite(MODEM_DTR, LOW);
-    delay(300);
-    Serial.println("\t>> Starting modem ... ");
-    TurnOnSIMModule();
-    StartModem();
-    if (StartGPRS()){
-      Serial.println("\t>> GRPS Connection Success");
-      GetTime_TinyGSM(); 
-      Serial.println("\t>> TinyGSM Client POST ALL to Sussy");
-      if (!SendAllPostHttpRequest_TinyGSM(currdatacount)){
-        Serial.println("\t>> Post Requests Failed");
+      if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
+        if (MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady){
+          return;
+        } 
+        else{
+          MyClientServerManager->MyClientServerList[i]->NewData.NewTemp = Value;
+          MyClientServerManager->MyClientServerList[i]->ReadyCheck.TempReady = true;
+          Debugln("Success:\tTempChar Set for Print", true);
+          return;
+        }
+      } else {
+        Debugln("Failed:\tServer Address Unmatch", TurnOnNotiResults);
       }
-      else{
-        Serial.println("\t>> Post Requests Success");
+    }
+    return;
+  }
+
+  void ClientServerManager::setHumChar(std::string Server, std::string Value){  
+    // Method/function defined inside the class
+    Debugf("@ClientServerManager::setHumChar:\tSetting Hum Char for Server(%s):\t\n", Server.c_str(), TurnOnNotiResults);
+
+    if (MyClientServerManager->getNumberofClientServer() == 0) {
+      Debugln("No Server to set!", TurnOnNotiResults);
+      return;
+    }
+
+    for (int i = 0; i < sizelimit; i++) {
+      Debug("\t>> Next Server:\t", TurnOnNotiResults);
+      std::string SavedServer =  MyClientServerManager->MyClientServerList[i]->pServerAddress->toString();
+      Debugf("Checking (%s) :\t", SavedServer.c_str(), TurnOnNotiResults);
+      if (strcmp(SavedServer.c_str(), Server.c_str()) == 0) {
+        if (MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady){
+          return;
+        } else {
+          MyClientServerManager->MyClientServerList[i]->NewData.NewHum = Value;
+          MyClientServerManager->MyClientServerList[i]->ReadyCheck.HumReady = true;
+          Debugln("Success:\tHumChar Set for Print", true);
+          return;
+        }
+      } else {
+        Debugln("Failed:\tServer Address Unmatch", TurnOnNotiResults);
+      }
+    }
+    return;
+  }
+
+  int ClientServerManager::sendReadings(int &currdatacount ) {
+    Serial.println("@ClientServerManager::sendReadings:\tCheck and Post All");  
+    // 0 == OK
+    // 1 == SKIP
+    // 2 == FAIL
+    int status = 2;
+
+    Serial.println("\t>> Checking that all ClientServer is Ready");
+    int checkStart = millis();
+    while (!MyClientServerManager->checkAllReady() && (millis()-checkStart)<1550) {
+      Serial.println("\t\t>> Not All Ready");
+      delay(500);
+    }
+    
+    BLEDevice::deinit(true);
+
+    AverageReadings();
+
+    // Start Modem and GPRS, Get GPS and Datetime, Post to Cloud
+    // Serial.println("(int)(currdatacount-dataindex_last + 1)");
+    // Serial.println((int)(currdatacount-dataindex_last + 1));
+    // Serial.println("(int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND)");
+    // Serial.println((int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND);
+
+    if (0 == (int)(currdatacount-dataindex_last + 1)%READING_BEFORE_SEND || (currdatacount == 0 && dataindex_last == 0)){
+      Serial.println("\t>> Use DTR Pin Wakeup");
+      pinMode(MODEM_DTR, OUTPUT);
+      //Set DTR Pin low , wakeup modem .
+      digitalWrite(MODEM_DTR, LOW);
+      delay(300);
+      Serial.println("\t>> Starting modem ... ");
+      TurnOnSIMModule();
+      StartModem();
+      if (StartGPRS()){
+        Serial.println("\t>> GRPS Connection Success");
+        if(!GetTime_TinyGSM()){
+          GetNextTime();
+        }
+        Serial.println("\t>> TinyGSM Client POST ALL to Sussy");
+        if (!SendAllPostHttpRequest_TinyGSM(currdatacount)){
+          Serial.println("\t>> Post Requests Failed");
+          status = 2;
+        }
+        else {
+          Serial.println("\t>> Post Requests Success");
+          status = 0;
+        };
+        //dataindex_last++ occurs in PostSendAll
+      }
+      else {
+        Serial.println("\t>> GRPS Connection Failed");
+        GetNextTime();
+        status = 2;
       };
-      //dataindex_last++ occurs in PostSendAll
+      Serial.println("\t>> Retrieving GPS Information");
+      GetGPS();
+      Serial.println("\t>> Stopping SIM Module and network functions");
+      StopModem();
+      Serial.println("End sendReadings:\tReadings Remaining :\t" + String(currdatacount - dataindex_last + 1));  
+      return status;
     }
     else {
-      Serial.println("\t>> GRPS Connection Failed");
+      Serial.println("\t>> GetTime due to skipping");
       GetNextTime();
-    };
-    Serial.println("\t>> Retrieving GPS Information");
-    GetGPS();
-    Serial.println("\t>> Stopping SIM Module and network functions");
-    StopModem();
-    Serial.println("End sendReadings: Readings Remaining : " + String(currdatacount - dataindex_last + 1));  
-    return;
-  }else{
-    Serial.println("\t>> GetTime due to skipping");
-    GetNextTime();
-  }
-  Serial.println("End sendReadings: Readings Skipped : " + String(currdatacount - dataindex_last + 1));  
-}
-
-void ClientServerManager::storeAllReadings(int &currdatacount ) {
-  Serial.println("@ClientServerManager::storeAllReadings: Store All");  
-
-  Serial.println("\t>> Storing Self and Averaged Readings in CSV");
-  storeReading("/avrg.csv", currdatacount, CurrTemp_Cloud, CurrHum_Cloud, currDateTimePOST, CurrLat , CurrLong);
-  storeReading("/data.csv", currdatacount, temp, hum, currDateTimeCSV, CurrLat , CurrLong);
-
-  Serial.println("\t>> Storing Readings from all ClientServer");
-
-  char * DataCSVPath[] = {"/data1.csv","/data2.csv","/data3.csv"};
-  
-  for (int i = 0; i < MyClientServerManager->TotalConnectedClientServer; i++) {
-
-    Serial.print("\t>> Next Server: ");
-    ClientServer * CurrServer = MyClientServerManager->MyClientServerList[i];
-    if (CurrServer->IsConnected && CurrServer->IsInit 
-    && CurrServer->ReadyCheck.CharReady && CurrServer->ReadyCheck.HumReady 
-    && CurrServer->ReadyCheck.TempReady) {
-
-      std::string SavedServer = CurrServer->pServerAddress->toString().c_str();
-      printReading(SavedServer.c_str(), String(temp).c_str(), String(hum).c_str());
-      
-      //Store in SD
-      storeReading(DataCSVPath[i], currdatacount, CurrServer->NewData.NewTemp.c_str(), CurrServer->NewData.NewTemp.c_str(),currDateTimeCSV, CurrLat , CurrLong);
-      
-      CurrServer->ReadyCheck.HumReady = false;
-      CurrServer->ReadyCheck.TempReady = false;
+      return 1;
     }
-
-    else Serial.println("BLE Server Unavailable/ Unready");
+    Serial.println("End sendReadings:\tReadings Skipped :\t" + String(currdatacount - dataindex_last + 1));  
   }
-  Serial.println("End checkReadings: All Readings Saved");  
-}
 
-static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+  bool ClientServerManager::storeAllReadings(int &currdatacount ) {
+    bool status = true;
+    Serial.println("@ClientServerManager::storeAllReadings:\tStore All");  
 
-  Debug("[[Notification (TEMP)]] @ ",true);
-  std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
+    Serial.println("\t>> Storing Self and Averaged Readings in CSV");
+    status = storeReading("/avrg.csv", currdatacount, CurrTemp_Cloud, CurrHum_Cloud, currDateTimePOST, CurrLat , CurrLong) ? status : false;
+    status = storeReading("/data.csv", currdatacount, temp, hum, currDateTimeCSV, CurrLat , CurrLong) ? status : false;
 
-  Debugf(" from Server (%s) Notified \n", ServerAddressStr.c_str(),true);
-  char* temperatureChar = (char*)pData;
-  temperatureChar[6] = '\0';
-  std::string TempString = temperatureChar;
-  Debugf("Temperature: %s C \n", TempString.c_str(),TurnOnNotiResults);
-  Debug("-> Call setTempChar: ",TurnOnNotiResults);
-  MyClientServerManager->setTempChar(ServerAddressStr, TempString);
-  Debugln("",true);
-}
-//When the BLE Server sends a new humidity reading with the notify property
-static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,uint8_t* pData, size_t length, bool isNotify) {
+    Serial.println("\t>> Storing Readings from all ClientServer");
 
-  Debug("[[Notification (HUM)]] @ ",true);
-  std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
-
-  Debugf(" from Server (%s) Notified \n", ServerAddressStr.c_str(),true);
-  char* humidityChar = (char*)pData;
-  humidityChar[6] = '\0';
-  std::string HumString = humidityChar;
-  Debugf("Humidity: %s %% \n", HumString.c_str(),TurnOnNotiResults);
-  Debug("-> Call setHumChar: ",TurnOnNotiResults);
-  MyClientServerManager->setHumChar(ServerAddressStr, HumString);
-  Debugln("",true);
-}
-
-void print_wakeup_reason() {
-  esp_sleep_wakeup_cause_t wakeup_reason;
-
-  wakeup_reason = esp_sleep_get_wakeup_cause();
-
-  switch (wakeup_reason) {
-    case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
-    case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
-    case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
-    case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
-    case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
-    default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
-  }
-}
-
-void storeReading(const char* filename, int data_count, float curr_Temp, float curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon){
-  //Store Self reading in SD
-  String dataString = String(data_count) + "," 
-  + String(curr_Temp) + "," + String(curr_Hum) + "," 
-  + curr_DateTime + "," 
-  + String(curr_Lat) + "," + String(curr_Lon);
-  Serial.print("\t>> Appending : " + dataString + " >> ");
-
-  if (SDInit && writeDataLine(SD, filename, dataString.c_str())) {
-    Serial.println("\t>> New Data added");
-    readFile(SD, filename);
-  } else {
-    Serial.println("\t>> New Data not added");
-  }
-}
-
-void storeReading(const char* filename, int data_count, const char* curr_Temp, const char* curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon){
-  //Store Self reading in SD
-  String dataString = String(data_count) + "," 
-  + String(curr_Temp) + "," + String(curr_Hum) + "," 
-  + curr_DateTime + "," 
-  + String(curr_Lat) + "," + String(curr_Lon);
-  Serial.print("\t>> Appending : " + dataString + " >> ");
-
-  if (SDInit && writeDataLine(SD, filename, dataString.c_str())) {
-    Serial.println("\t>> New Data added");
-    // readFile(SD, filename);
-  } else {
-    Serial.println("\t>> New Data not added");
-  }
-}
-
-void printReading(const char* savedServer, const char* curr_Temp, const char* curr_Hum){
-      Serial.printf("\t>> BLE Device : %s \n", savedServer);
-      Serial.printf("\t>> Readings: Temperature = %s C - ", curr_Temp);
-      Serial.printf("Humidity = %s %% \n",curr_Hum);
-}
-
-void AverageReadings(){
-  Serial.println(">> AverageReadings : Collate and Average Self and Beacon Readings");
-  int TotalCurrReadings = 1 + MyClientServerManager->TotalConnectedClientServer;
-  float CurrTempReadingsSum = temp;
-  float CurrHumReadingsSum = hum;
-  
-  for (int i = 0 ; i < MyClientServerManager->TotalConnectedClientServer ; i++){
-    ClientServer * CurrServer = MyClientServerManager->MyClientServerList[i];
-    CurrTempReadingsSum += std::stof(CurrServer->NewData.NewTemp);
-    CurrHumReadingsSum += std::stof(CurrServer->NewData.NewHum);
-  }
-  //Get Average
-  CurrTemp_Cloud = CurrTempReadingsSum/TotalCurrReadings;
-  CurrHum_Cloud = CurrHumReadingsSum/TotalCurrReadings;
-  Serial.println("\t>> Total Readings to Average: " + String(TotalCurrReadings));
-  Serial.println("\t>> Avg Temp : " + String(CurrTemp_Cloud) + " - " + "Avg Hum : " + String(CurrHum_Cloud));
-  Serial.println(">> End AverageReadings : Readings Averaged");
-}
-
-void AddHours( struct tm* date) {
-    // const time_t DEEP_SLEEP_TIME = HRS_TO_SLEEP * 60 * 60 ;
-    const time_t DEEP_SLEEP_TIME = TIME_TO_SLEEP ;
-    const time_t p_date_seconds = mktime( date )  ;
-    Serial.println("\t>> Previous DateTime: " + String(ctime( &p_date_seconds ))); 
-
-    // Seconds since start of epoch
-    const time_t date_seconds = mktime( date ) + (DEEP_SLEEP_TIME) ;
-    Serial.println("\t>> Current DateTime: " + String(ctime(&date_seconds)));
+    char * DataCSVPath[] = {"/data1.csv","/data2.csv","/data3.csv"};
     
-    // Update caller's date
-    // Use localtime because mktime converts to UTC so may change date
-    *date = *localtime( &date_seconds ) ; ;
-}
+    for (int i = 0; i < MyClientServerManager->TotalConnectedClientServer;i++) {
+      Serial.print("\t>> Next Server:\t");
+      ClientServer * CurrServer = MyClientServerManager->MyClientServerList[i];
+      if (CurrServer->IsConnected && CurrServer->IsInit 
+      && CurrServer->ReadyCheck.CharReady && CurrServer->ReadyCheck.HumReady 
+      && CurrServer->ReadyCheck.TempReady) {
 
-void GetNextTime(){ 
-  Serial.println(">> GetNextTime : Add Sleep time manually to last saved time");
-  struct tm date = { 0, 0, 12 } ;   // nominal time midday (arbitrary).
+        std::string SavedServer = CurrServer->pServerAddress->toString().c_str();
+        printReading(SavedServer.c_str(), String(temp).c_str(), String(hum).c_str());
+        
+        //Store in SD
+        status = storeReading(DataCSVPath[i], currdatacount, CurrServer->NewData.NewTemp.c_str(), CurrServer->NewData.NewTemp.c_str(),currDateTimeCSV, CurrLat , CurrLong)?status : false;
+        
+        CurrServer->ReadyCheck.HumReady = false;
+        CurrServer->ReadyCheck.TempReady = false;
+      }
+      else {
+        Serial.println("BLE Server Unavailable/ Unready"); 
+        status = false;
+      }
+    }
+    Serial.println("End checkReadings:\tAll Readings Saved");  
+    return status;
+  }
+////////////////////////////////////////////////////////////////////////////////
 
-  // Set up the date structure
-  date.tm_year = LastYr - 1900 ;
-  date.tm_mon = LastMth - 1 ;     // note: zero indexed
-  date.tm_mday = LastDay ;        // note: not zero indexed
-  date.tm_hour = LastHr ;
-  date.tm_min = LastMin ;
-  date.tm_sec = LastSec ;
-  AddHours(&date);
+/* Notification CallBack Functions */
+  static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
 
-  LastYr = date.tm_year + 1900;
-  LastMth = date.tm_mon + 1;
-  LastDay = date.tm_mday;
-  LastHr = date.tm_hour;
-  LastMin = date.tm_min;
-  LastSec = date.tm_sec;
+    Debug("[[Notification (TEMP)]] @ ",true);
+    std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
 
-  currDateTimePOST = String(LastYr) + "-" 
-  + (LastMth < 10 ? String("0") + String(LastMth) : String(LastMth)) + "-" 
-  + (LastDay < 10 ? String("0") + String(LastDay) : String(LastDay)) +  "T" 
-  + (LastHr < 10 ? String("0") + String(LastHr) : String(LastHr)) + ":" 
-  + (LastMin < 10 ? String("0") + String(LastMin) : String(LastMin)) + ":" 
-  + (LastSec < 10 ? String("0") + String(LastSec) : String(LastSec)) 
-  + toTimezoneString(LastTZ);
+    Debugf(" from Server (%s) Notified ", ServerAddressStr.c_str(),true);
+    char* temperatureChar = (char*)pData;
+    temperatureChar[6] = '\0';
+    std::string TempString = temperatureChar;
+    Debugf("Temperature:\t%s C \n", TempString.c_str(),true);
 
-  currDateTimeCSV = String(LastYr) + "-" 
-  + (LastMth < 10 ? String("0") + String(LastMth) : String(LastMth)) + "-" 
-  + (LastDay < 10 ? String("0") + String(LastDay) : String(LastDay)) +  "T" 
-  + (LastHr < 10 ? String("0") + String(LastHr) : String(LastHr)) + ":" 
-  + (LastMin < 10 ? String("0") + String(LastMin) : String(LastMin)) + ":" 
-  + (LastSec < 10 ? String("0") + String(LastSec) : String(LastSec))  
-  + toTimezoneStringCSV(LastTZ);
+    Debug("-> Call setTempChar:\t",TurnOnNotiResults);
+    MyClientServerManager->setTempChar(ServerAddressStr, TempString);
+  }
+  //When the BLE Server sends a new humidity reading with the notify property
+  static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic,uint8_t* pData, size_t length, bool isNotify) {
 
-  Serial.println("End GetNextTime : DateTime adjusted");
-}
+    Debug("[[Notification (HUM)]] @ ",true);
+    std::string ServerAddressStr = pBLERemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress().toString();
 
-//LILYGO/TinyGSM Commands
+    Debugf(" from Server (%s) Notified ", ServerAddressStr.c_str(),true);
+    char* humidityChar = (char*)pData;
+    humidityChar[6] = '\0';
+    std::string HumString = humidityChar;
+    Debugf("Humidity:\t%s %% \n", HumString.c_str(),true);
+    Debug("-> Call setHumChar:\t",TurnOnNotiResults);
+    MyClientServerManager->setHumChar(ServerAddressStr, HumString);
+  }
+////////////////////////////////////////////////////////////////////////////////
+
+/* Reading functions */
+  bool storeReading(const char* filename, int data_count, float curr_Temp, float curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon){
+    //Store Self reading in SD
+    String dataString = String(data_count) + "," 
+    + String(curr_Temp) + "," + String(curr_Hum) + "," 
+    + curr_DateTime + "," 
+    + String(curr_Lat) + "," + String(curr_Lon);
+    Serial.print("\t>> Appending :\t" + dataString + " >> ");
+
+    if (SDInit && writeDataLine(SD, filename, dataString.c_str())) {
+      Serial.println("\t>> New Data added");
+      // readFile(SD, filename);
+      return true;
+    } else {
+      Serial.println("\t>> New Data not added");
+      return false;
+    }
+  }
+
+  bool storeReading(const char* filename, int data_count, const char* curr_Temp, const char* curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon){
+    //Store Self reading in SD
+    String dataString = String(data_count) + "," 
+    + String(curr_Temp) + "," + String(curr_Hum) + "," 
+    + curr_DateTime + "," 
+    + String(curr_Lat) + "," + String(curr_Lon);
+    Serial.print("\t>> Appending :\t" + dataString + " >> ");
+
+    if (SDInit && writeDataLine(SD, filename, dataString.c_str())) {
+      Serial.println("\t>> New Data added");
+      // readFile(SD, filename);
+      return true;
+    } else {
+      Serial.println("\t>> New Data not added");
+      return false;
+    }
+  }
+
+  void printReading(const char* savedServer, const char* curr_Temp, const char* curr_Hum){
+        Serial.printf("\t>> BLE Device :\t%s \n", savedServer);
+        Serial.printf("\t>> Readings:\tTemperature =\t%s C", curr_Temp);
+        Serial.printf("\tHumidity =\t%s %% \n",curr_Hum);
+  }
+
+  void AverageReadings(){
+    Serial.println(">> AverageReadings :\tCollate and Average Self and Beacon Readings");
+    int TotalCurrReadings = 1 + MyClientServerManager->TotalConnectedClientServer;
+    float CurrTempReadingsSum = temp;
+    float CurrHumReadingsSum = hum;
+    
+    for (int i = 0 ; i < MyClientServerManager->TotalConnectedClientServer ; i++){
+      ClientServer * CurrServer = MyClientServerManager->MyClientServerList[i];
+      CurrTempReadingsSum += std::stof(CurrServer->NewData.NewTemp);
+      CurrHumReadingsSum += std::stof(CurrServer->NewData.NewHum);
+    }
+    //Get Average
+    CurrTemp_Cloud = CurrTempReadingsSum/TotalCurrReadings;
+    CurrHum_Cloud = CurrHumReadingsSum/TotalCurrReadings;
+    Serial.println("\t>> Total Readings to Average:\t" + String(TotalCurrReadings));
+    Serial.println("\t>> Avg Temp :\t" + String(CurrTemp_Cloud) + " - " + "Avg Hum :\t" + String(CurrHum_Cloud));
+    Serial.println(">> End AverageReadings :\tReadings Averaged");
+  }
+
+  void AddHours( struct tm* date) {
+      // const time_t DEEP_SLEEP_TIME = HRS_TO_SLEEP * 60 * 60 ;
+      const time_t DEEP_SLEEP_TIME = TIME_TO_SLEEP ;
+      const time_t p_date_seconds = mktime( date )  ;
+      Serial.println("\t>> Previous DateTime:\t" + String(ctime( &p_date_seconds ))); 
+
+      // Seconds since start of epoch
+      const time_t date_seconds = mktime( date ) + (DEEP_SLEEP_TIME) ;
+      Serial.println("\t>> Current DateTime:\t" + String(ctime(&date_seconds)));
+      
+      // Update caller's date
+      // Use localtime because mktime converts to UTC so may change date
+      *date = *localtime( &date_seconds ) ; ;
+  }
+
+  void GetNextTime(){ 
+    Serial.println(">> GetNextTime :\tAdd Sleep time manually to last saved time");
+    struct tm date = { 0, 0, 12 } ;   // nominal time midday (arbitrary).
+
+    // Set up the date structure
+    date.tm_year = LastYr - 1900 ;
+    date.tm_mon = LastMth - 1 ;     // note: zero indexed
+    date.tm_mday = LastDay ;        // note: not zero indexed
+    date.tm_hour = LastHr ;
+    date.tm_min = LastMin ;
+    date.tm_sec = LastSec ;
+    AddHours(&date);
+
+    LastYr = date.tm_year + 1900;
+    LastMth = date.tm_mon + 1;
+    LastDay = date.tm_mday;
+    LastHr = date.tm_hour;
+    LastMin = date.tm_min;
+    LastSec = date.tm_sec;
+
+    currDateTimePOST = String(LastYr) + "-" 
+    + (LastMth < 10 ? String("0") + String(LastMth) : String(LastMth)) + "-" 
+    + (LastDay < 10 ? String("0") + String(LastDay) : String(LastDay)) +  "T" 
+    + (LastHr < 10 ? String("0") + String(LastHr) : String(LastHr)) + ":" 
+    + (LastMin < 10 ? String("0") + String(LastMin) : String(LastMin)) + ":" 
+    + (LastSec < 10 ? String("0") + String(LastSec) : String(LastSec)) 
+    + toTimezoneString(LastTZ);
+
+    currDateTimeCSV = String(LastYr) + "-" 
+    + (LastMth < 10 ? String("0") + String(LastMth) : String(LastMth)) + "-" 
+    + (LastDay < 10 ? String("0") + String(LastDay) : String(LastDay)) +  "T" 
+    + (LastHr < 10 ? String("0") + String(LastHr) : String(LastHr)) + ":" 
+    + (LastMin < 10 ? String("0") + String(LastMin) : String(LastMin)) + ":" 
+    + (LastSec < 10 ? String("0") + String(LastSec) : String(LastSec))  
+    + toTimezoneStringCSV(LastTZ);
+
+    Serial.println("End GetNextTime :\tDateTime adjusted");
+  }
+////////////////////////////////////////////////////////////////////////////////
+
+/* LILYGO/TinyGSM Commands */
   void TurnOnSIMModule(){
-    Serial.println("\t>> TinyGSM: Turning on SIM Module");
+    Debugln("\t>> TinyGSM:\tTurning on SIM Module",true);
     /*
       MODEM_PWRKEY IO:4 The power-on signal of the modulator must be given to it,
       otherwise the modulator will not reply when the command is sent
@@ -777,35 +835,35 @@ void GetNextTime(){
   }
 
   void StartModem() {
-    Serial.println("@TingyGSM::StartModem: Initializing modem");
+    Debugln("@TingyGSM::StartModem:\tInitializing modem",true);
+    modem.init();
+    light_sleep(1);
     if (!modem.init()) {
-      Serial.println("\t>> Failed to restart modem, delaying 2s and retrying");
+      Debugln("\t>> Failed to start modem, delaying 2s and retrying",true);
       delay(100);
       light_sleep(2);
     }
-    Serial.println("End StartModem: Initialize OK");
+    Debugln("End StartModem:\tInitialize OK",true);
   }
 
   void StopModem() {
-    Serial.println("@TingyGSM::StopModem: Stopping GPRS and modem");
+    Debugln("@TingyGSM::StopModem:\tStopping GPRS and modem",true);
     modem.gprsDisconnect();
     delay(200);
     if (!modem.isGprsConnected()) {
-      Serial.println("\t>> GPRS disconnected");
+      Debugln("\t>> GPRS disconnected",true);
     } else {
-      Serial.println("\t>> GPRS disconnect: Failed.");
+      Debugln("\t>> GPRS disconnect:\tFailed",true);
     }
     modem.sleepEnable();
     delay(100);
     modem.poweroff();
-    pinMode(4, INPUT_PULLUP);
-    Serial.println("\t>> Waiting for modem to powerdown9");
-    light_sleep(5);
-    Serial.println("End StopModem: Stopped GPRS and modem");
+    // pinMode(4, INPUT_PULLUP);
+    Debugln("End StopModem:\tStopped GPRS and modem",true);
   }
 
   bool StartGPRS() {
-    Serial.println("@TingyGSM::StartGPRS: Starting GPRS Service");
+    Debugln("@TingyGSM::StartGPRS:\tStarting GPRS Service", true);
     // Set Modem to Auto, Set GNSS
     /*  Preferred mode selection : AT+CNMP
       2 – Automatic
@@ -816,95 +874,86 @@ void GetNextTime(){
       } while (ret != "OK");
     */
 
-    String ret;
+    bool ret;
     ret = modem.setNetworkMode(2);
-    Serial.println("\t\>> setNetworkMode: "+ ret);
-
-
-    //https://github.com/vshymanskyy/TinyGSM/pull/405
-    uint8_t mode = modem.getGNSSMode();
-    Serial.println("\t>> GNSS Mode: " + String(mode));
+    modem.waitResponse(GSM_OK);
+    Debugf("\t\>> setNetworkMode:\t%s", ret? "OK" : "FAIL", TurnOnSIMResults);
 
     /**
-        CGNSSMODE: <gnss_mode>,<dpo_mode>
-        This command is used to configure GPS, GLONASS, BEIDOU and QZSS support mode.
-        gnss_mode:
-            0 : GLONASS
-            1 : BEIDOU
-            2 : GALILEO
-            3 : QZSS
-        dpo_mode :
-            0 disable
-            1 enable
+      https://github.com/vshymanskyy/TinyGSM/pull/405
+      CGNSSMODE: <gnss_mode>,<dpo_mode>
+      This command is used to configure GPS, GLONASS, BEIDOU and QZSS support mode.
+      gnss_mode:
+          0 : GLONASS
+          1 : BEIDOU
+          2 : GALILEO
+          3 : QZSS
+      dpo_mode :
+          0 disable
+          1 enable
     */
     modem.setGNSSMode(0, 1);
-    light_sleep(2);
+    uint8_t mode = modem.getGNSSMode();
+    Debugf("\tGNSS Mode:\t%s\n", String(mode).c_str(), TurnOnSIMResults);
 
     String name = modem.getModemName();
-    Serial.println("\t>> Modem Name: " + name);
+    Debugf("\t>> Modem Name:\t%s" , name.c_str(), TurnOnSIMResults);
 
     String modemInfo = modem.getModemInfo();
-    Serial.println("\t>> Modem Info: " + modemInfo);
+    Debugf("\tModem Info:\t%s\n" , modemInfo.c_str(), TurnOnSIMResults);
 
     // Unlock your SIM card with a PIN if needed
     if (GSM_PIN && modem.getSimStatus() != 3) {
       modem.simUnlock(GSM_PIN);
     }
 
-    Serial.println("\t>> Waiting for network...");
-    delay(1000);
-    if (!modem.waitForNetwork(10000L)) {
-      Serial.println("\t\t>> Wait Network Light Sleep 3 Sec");
-      delay(200);
-      light_sleep(3);
-      // return;
-    }
+    Debugln("\t>> Waiting for network...", TurnOnSIMResults);
+    DBG("Waiting for network...");
+    modem.waitForNetwork(10000L);
+    light_sleep(1);
 
     if (modem.isNetworkConnected()) {
-      Serial.println("\t>> Network connected");
+      Debugln("\t>> Network connected", true);
     } else {
-      Serial.println("\t>> Network not connected");
+      Debugln("\t>> Network not connected", true);
       return false;
     }
       
     // Connect to APN
-    Serial.print("\t>> Connecting to APN: ");
-    Serial.println(APN);
+    Debugf("\t>> APN Connected:\t%s", APN, true);
+    // Debugln(APN,true);
     DBG("Connecting to", APN);
-    if (!modem.gprsConnect(APN, GPRS_USER, GPRS_PASS)) {
-      Serial.println("\t>> APN Light Sleep 2 Sec");
-      delay(100);
-      light_sleep(2);
-    } 
+    modem.gprsConnect(APN, GPRS_USER, GPRS_PASS);
+    light_sleep(1);
 
-    //res will represent the modem connection's success/ failure
-    bool res = modem.isGprsConnected();
-    Serial.println("\t>> GPRS status: " + String(res ? "connected" : "not connected"));
-    if (!res) return false;
+    //ret will represent the modem connection's success/ failure
+    ret = modem.isGprsConnected();
+    Debugf("\tGPRS status:\t%s\n", String(ret?"connected":"not connected").c_str(), true);
+    if (!ret) return false;
 
     String ccid = modem.getSimCCID();
-    Serial.println("\t>> CCID: " + ccid);
+    Debugf("\t>> CCID:\t%s", ccid.c_str(), TurnOnSIMResults);
 
     String imei = modem.getIMEI();
-    Serial.println("\t>> IMEI: " +  imei);
+    Debugf("\tIMEI:\t%s\n",  imei.c_str(), TurnOnSIMResults);
 
     String imsi = modem.getIMSI();
-    Serial.println("\t>> IMSI: " + imsi);
+    Debugf("\t>> IMSI:\t%s", imsi.c_str(), TurnOnSIMResults);
 
     String cop = modem.getOperator();
-    Serial.println("\t>> Operator: " + cop);
+    Debugf("\tOperator:\t%s\n", cop.c_str(), TurnOnSIMResults);
 
     IPAddress local = modem.localIP();
-    Serial.println("\t>> Local IP: " + local.toString());
+    Debugf("\t>> Local IP:\t%s", local.toString().c_str(), TurnOnSIMResults);
 
     int csq = modem.getSignalQuality();
-    Serial.println("\t>> Signal quality : " + String(csq));
-    Serial.println("End StartGPRS: GPRS Started");
+    Debugf("\tSignal Quality:\t%s\n", String(csq).c_str(), TurnOnSIMResults);
+    Debugln("End StartGPRS:\tGPRS Started",true);
     return true;
   }
 
   void SendPostHttpRequest_TinyGSM() {
-    Serial.println("@TingyGSM::SendPostHttpRequest_TinyGSM: Starting Post Request");
+    Serial.println("@TingyGSM::SendPostHttpRequest_TinyGSM:\tStarting Post Request");
 
     const char server[] = "sussylogger-2.fly.dev";  //
     const int port = 80;
@@ -927,12 +976,12 @@ void GetNextTime(){
 
     Serial.print("\t>> Performing HTTP POST request to ... ");
     Serial.println(server);
-    Serial.print("\t>> Posting: ");
+    Serial.print("\t>> Posting:\t");
     Serial.println(postData);
 
     http.beginRequest();
     int err = http.post("/api/master/updateShipment");
-    Serial.println("\t>> Error Code: " + String(err));
+    Serial.println("\t>> Error Code:\t" + String(err));
     http.sendHeader("Content-Type", "application/x-www-form-urlencoded");
     http.sendHeader("Content-Length", postData.length());
     http.beginBody();
@@ -940,7 +989,7 @@ void GetNextTime(){
     http.endRequest();
 
     int status = http.responseStatusCode();
-    Serial.print("\t>> Response status code: "+String(status));
+    Serial.print("\t>> Response status code:\t"+String(status));
     if (!status) {
       delay(2000);
     }
@@ -957,7 +1006,7 @@ void GetNextTime(){
 
     // int length = http.contentLength();
     // if (length >= 0) {
-    //   Serial.println("\t>> Content length is: " + String(length));
+    //   Serial.println("\t>> Content length is:\t" + String(length));
     // }
     // if (http.isResponseChunked()) {
     //   Serial.println("\t>> The response is chunked");
@@ -966,16 +1015,16 @@ void GetNextTime(){
     // String body = http.responseBody();
     // Serial.println("\t>> Response:" + body);
 
-    // Serial.print("\t>> Body length is: ");
+    // Serial.print("\t>> Body length is:\t");
     // Serial.println(body.length());
 
     http.stop();
     Serial.println("\t>> Server disconnected");
-    Serial.println("End SendPostHttpRequest_TinyGSM: Post request success");
+    Serial.println("End SendPostHttpRequest_TinyGSM:\tPost request success");
   }
 
   bool SendAllPostHttpRequest_TinyGSM(int &currdatacount) {
-    Serial.println("@TingyGSM::SendAllPostHttpRequest_TinyGSM: Starting Post Request for All Devices");
+    Debugln("@TingyGSM::SendAllPostHttpRequest_TinyGSM:\tStarting Post Request for All Devices",true);
 
     const char server[] = "sussylogger-2.fly.dev";  
     const char URLPath[] = "/api/master/updateShipment";
@@ -984,44 +1033,48 @@ void GetNextTime(){
     int currindex = -1;
     float Temp_Cloud;
     float Hum_Cloud;
-    char DateTime_Cloud[27+1]  , temp[100];
+    char DateTime_Cloud[27+1]  , cptr[100];
     float Lat_Cloud;
     float Long_Cloud;
     int PostRetries = 0;
 
-    Serial.println("\t>> Creating HttpClient");
+    Debugln("\t>> Creating HttpClient", TurnOnSIMResults);
     TinyGsmClient client(modem);
     HttpClient http = HttpClient(client, server, port);
 
-    Serial.println("\t>> Reading from avrg.csv");
+    Debugln("\t>> Reading from avrg.csv", TurnOnSIMResults);
     File file = SD.open("/avrg.csv");
-    readLine(file, temp ,100);
-    Serial.println(temp);
-
+    readLine(file, cptr ,100);
+    if (TurnOnSIMResults){
+      Serial.print("\t\t>> Headers:\t"); 
+      Serial.println(cptr);
+    }
     while(currindex < dataindex_last - 1){      
-      readLine(file, temp ,100);
-      Serial.print("\t\t>> Past Reading: ");
-      Serial.println(temp);
-      currindex = std::atoi(temp);
+      readLine(file, cptr ,100);
+      if (TurnOnSIMResults){
+        Serial.print("\t\t>> Past Reading:\t"); 
+        Serial.println(cptr);
+      }
+      currindex = std::atoi(cptr);
     }
 
     Serial.println("\t>> Posting Unsent Readings");
     while(dataindex_last < currdatacount ){
-      Serial.println("\t>> Curr Datacount: "+ String(currdatacount) + 
-            "\tLast Unsent: " + String(dataindex_last));
+      Serial.print("\t>> Curr Datacount:\t"+ String(currdatacount) + 
+            "\tLast Unsent:\t" + String(dataindex_last));
 
-      Serial.println("\t>> Reading Idx: " + String(currindex+1));
+      Serial.print("\tReading Idx:\t" + String(currindex+1));
       if (readVals(file,&currindex,&Temp_Cloud,&Hum_Cloud,DateTime_Cloud,27,&Lat_Cloud,&Long_Cloud)){
-        Serial.println("\t\t>> Read OK");
+        Serial.println("\tStatus:\tOK");
       }else{
-        Serial.println("\t\t>> Read Failed");
+        Serial.println("\tStatus:\tFAIL");
         break;
       };
       DateTime_Cloud[27] = '\0';
       PostRetries = 0;
       while (PostRetries < 3){
-        Serial.println("\t>> Posting Idx: " + String(currindex) + "\tTries: " + String(PostRetries+1));
-        Serial.println("\t>> Posting to: " + String(server) + "\tPath: " + String(URLPath));
+        Serial.println("\t>> Posting Idx:\t\t" + String(currindex) + "\tTries:\t\t" + String(PostRetries+1));
+        Serial.println("\t>> Posting to:\t" + String(server) + "\tPath:\t" + String(URLPath));
         // SendHttpRequest(&http, URLPath, shipmentID, Temp_Cloud, Hum_Cloud, DateTime_Cloud, Lat_Cloud, Long_Cloud);
 
         String contentType = "application/x-www-form-urlencoded";
@@ -1035,27 +1088,26 @@ void GetNextTime(){
                           + "&eW=E"
                           + "&DateTime=" + String(DateTime_Cloud);
 
-        Serial.println("\t\t>> Post Body: " + postData);
+        Serial.println("\t\t>> Post Body:\t" + postData);
 
         http.beginRequest();
         int err = http.post("/api/master/updateShipment");
-        Serial.println("\t\t>> Error Code: " + String(err));
+        Serial.print("\t\t>> Error Code:\t" + String(err));
         http.sendHeader("Content-Type", "application/x-www-form-urlencoded");
         http.sendHeader("Content-Length", postData.length());
         http.beginBody();
         http.print(postData);
         http.endRequest();
-        Serial.println("\t\t>> End Post Request");
 
         int status = http.responseStatusCode();
-        Serial.println("\t\t>> Response status code: " + String(status));
+        Serial.println("\tResponse status code:\t" + String(status));
         PostRetries++;
         if (status == 200){
           dataindex_last++;
           break;
         }
-        if (PostRetries == 3){
-          Serial.println("End SendAllPostHttpRequest_TinyGSM: Post request Failed");
+        if (PostRetries == 2){
+          Serial.println("End SendAllPostHttpRequest_TinyGSM:\tPost request Failed");
           return false;
         }
       }
@@ -1064,12 +1116,12 @@ void GetNextTime(){
     file.close();
 
     if (currdatacount==dataindex_last) {
-      Serial.println("\t>> Curr Datacount: "+ String(currdatacount) + 
-            "\tLast Unsent: " + String(dataindex_last));
+      Serial.println("\t>> Curr Datacount:\t"+ String(currdatacount) + 
+            "\tLast Unsent:\t" + String(dataindex_last));
       PostRetries = 0;
       while(PostRetries<3){
-        Serial.println("\t>> Posting Idx: " + String(currdatacount) + "\tTries: " + String(PostRetries+1));
-        Serial.println("\t>> Posting to: " + String(server) + "\tPath: " + String(URLPath));
+        Serial.println("\t>> Posting Idx:\t\t" + String(currdatacount) + "\tTries:\t\t" + String(PostRetries+1));
+        Serial.println("\t>> Posting to:\t" + String(server) + "\tPath:\t" + String(URLPath));
         // SendHttpRequest(&http, URLPath, shipmentID, CurrTemp_Cloud, CurrHum_Cloud, currDateTimePOST, CurrLat, CurrLong);
 
         String contentType = "application/x-www-form-urlencoded";
@@ -1083,63 +1135,61 @@ void GetNextTime(){
                           + "&eW=E"
                           + "&DateTime=" + currDateTimePOST;
 
-        Serial.println("\t\t>> Post Body: " + postData);
+        Serial.println("\t\t>> Post Body:\t" + postData);
 
         http.beginRequest();
         int err = http.post("/api/master/updateShipment");
-        Serial.println("\t\t>> Error Code: " + String(err));
+        Serial.print("\t\t>> Error Code:\t" + String(err));
         http.sendHeader("Content-Type", "application/x-www-form-urlencoded");
         http.sendHeader("Content-Length", postData.length());
         http.beginBody();
         http.print(postData);
         http.endRequest();
-        Serial.println("\t\t>> End Post Request");
 
         int status = http.responseStatusCode();
-        Serial.println("\t\t>> Response status code: " + String(status));
+        Serial.println("\tResponse status code:\t" + String(status));
         PostRetries++;
         if (status == 200){
           dataindex_last++;
           return true;
         }
-        if (PostRetries == 3){
-          Serial.println("End SendAllPostHttpRequest_TinyGSM: Post request Failed");
+        if (PostRetries == 2){
+          Serial.println("End SendAllPostHttpRequest_TinyGSM:\tPost request Failed");
           return false;
         }
       }
     }
 
     http.stop();
-    Serial.println("\t>> Server disconnected");
-    Serial.println("End SendAllPostHttpRequest_TinyGSM: Post request success");
+    Serial.println("End SendAllPostHttpRequest_TinyGSM:\tPost request Done and Server disconnected");
   }
 
   void SendGetHttpRequest_TinyGSM() {
 
-    const char server[] = "sussylogger-2.fly.dev";  //
-    const char resource[] = "/";
-    const int port = 80;
+    // const char server[] = "sussylogger-2.fly.dev";  //
+    // const char resource[] = "/";
+    // const int port = 80;
 
-    TinyGsmClient client(modem);
-    HttpClient http(client, server, port);
-    Serial.print(F("Performing HTTP GET request to ... "));
-    Serial.print(F(server));
-    // http.connectionKeepAlive();  // Currently, this is needed for HTTPS
-    int err = http.get(resource);
-    if (err != 0) {
-      Serial.println(F(" failed to connect"));
-      delay(10000);
-      // return;
-    }
-    Serial.println(" ");
+    // TinyGsmClient client(modem);
+    // HttpClient http(client, server, port);
+    // Serial.print(F("Performing HTTP GET request to ... "));
+    // Serial.print(F(server));
+    // // http.connectionKeepAlive();  // Currently, this is needed for HTTPS
+    // int err = http.get(resource);
+    // if (err != 0) {
+    //   Serial.println(F(" failed to connect"));
+    //   delay(10000);
+    //   // return;
+    // }
+    // Serial.println(" ");
 
-    int status = http.responseStatusCode();
-    Serial.print(F("Response status code: "));
-    Serial.println(status);
-    if (!status) {
-      delay(10000);
-      // return;
-    }
+    // int status = http.responseStatusCode();
+    // Serial.print(F("Response status code:\t"));
+    // Serial.println(status);
+    // if (!status) {
+    //   delay(10000);
+    //   // return;
+    // }
 
     // Serial.println(F("Response Headers:"));
     // if (http.headerAvailable()) {
@@ -1150,71 +1200,67 @@ void GetNextTime(){
 
     // int length = http.contentLength();
     // if (length >= 0) {
-    //   Serial.print(F("Content length is: "));
+    //   Serial.print(F("Content length is:\t"));
     //   Serial.println(length);
     // }
     // if (http.isResponseChunked()) {
     //   Serial.println(F("The response is chunked"));
     // }
 
-    String body = http.responseBody();
-    Serial.println(F("Response:"));
-    Serial.println(body);
+    // String body = http.responseBody();
+    // Serial.println(F("Response:"));
+    // Serial.println(body);
 
-    Serial.print(F("Body length is: "));
-    Serial.println(body.length());
+    // Serial.print(F("Body length is:\t"));
+    // Serial.println(body.length());
 
-    // Shutdown
+    // // Shutdown
 
-    http.stop();
-    Serial.println(F("Server disconnected"));
+    // http.stop();
+    // Serial.println(F("Server disconnected"));
   }
 
-  void GetTime_TinyGSM() {
-    int year3 = 0;
-    int month3 = 0;
-    int day3 = 0;
-    int hour3 = 0;
-    int min3 = 0;
-    int sec3 = 0;
-    float timezone = 0;
+  bool GetTime_TinyGSM() {
+    Debugln("@TingyGSM::GetTime_TinyGSM:\tGetting Network Time",true);
+    int year = 0;
+    int month = 0;
+    int day = 0;
+    int hour = 0;
+    int min = 0;
+    int sec = 0;
+    float tz = 0;
     for (int8_t i = 5; i; i--) {
       DBG("Requesting current network time");
-      if (modem.getNetworkTime(&year3, &month3, &day3, &hour3, &min3, &sec3,
-                              &timezone)) {
-        DBG("Year:", year3, "\tMonth:", month3, "\tDay:", day3);
-        DBG("Hour:", hour3, "\tMinute:", min3, "\tSecond:", sec3);
-        DBG("Timezone:", timezone);
+      if (modem.getNetworkTime(&year, &month, &day, &hour, &min, &sec, &tz)) {
         break;
-      } else {
-        DBG("Couldn't get network time, retrying in 3s.");
-        light_sleep(3);
+      } 
+      else {
+        DBG("Couldn't get network time");
+        Debugln("End GetTime_TinyGSM:\tFailed to geNetwork Time", true);
+        return false;
       }
     }
-    LastYr = year3;
-    LastMth = month3;
-    LastDay = day3;
-    LastHr = hour3;
-    LastMin = min3;
-    LastSec = sec3;
-    LastTZ = timezone;
-    DBG("Retrieving time again as a string");
-    String datefull = modem.getGSMDateTime(DATE_FULL);
-    String datetime = modem.getGSMDateTime(DATE_TIME);
-    String datedate = modem.getGSMDateTime(DATE_DATE);
+    LastYr = year;
+    LastMth = month;
+    LastDay = day;
+    LastHr = hour;
+    LastMin = min;
+    LastSec = sec;
+    LastTZ = tz;
+    String datefull = modem.getGSMDateTime(DATE_FULL); //23/03/03,00:39:54+32
+    String datetime = modem.getGSMDateTime(DATE_TIME); //00:39:54+32
+    // String datedate = modem.getGSMDateTime(DATE_DATE); //23/03/03
+    // Serial.println("Current Network Date_Full:\t" + datefull) ;
+    // Serial.println("Current Network Date_Time:\t" + datetime);
+    // Serial.println("Current Network Date_Date:\t" + datedate);
 
-    //23/03/03,00:39:54+32
-    //2023-02-28T19:20:01
-    currDateTimePOST = String(year3) + "-" + datefull.substring(3,5) + "-" + datefull.substring(6,8) + "T" + datetime.substring(0,2) + ":" + datetime.substring(3,5) + ":" + datetime.substring(6,8) + toTimezoneString(timezone);
+    currDateTimePOST = String(year) + "-" + datefull.substring(3,5) + "-" + datefull.substring(6,8) + "T" + datetime.substring(0,2) + ":" + datetime.substring(3,5) + ":" + datetime.substring(6,8) + toTimezoneString(tz);
 
-    currDateTimeCSV = String(year3) + "-" + datefull.substring(3,5) + "-" + datefull.substring(6,8) + "T" + datetime.substring(0,2) + ":" + datetime.substring(3,5) + ":" + datetime.substring(6,8) + toTimezoneStringCSV(timezone);
+    currDateTimeCSV = String(year) + "-" + datefull.substring(3,5) + "-" + datefull.substring(6,8) + "T" + datetime.substring(0,2) + ":" + datetime.substring(3,5) + ":" + datetime.substring(6,8) + toTimezoneStringCSV(tz);
 
     currDateTimePOST = currDateTimePOST.c_str();
-    Serial.println("Current Network Date_Full: " + datefull) ;
-    Serial.println("Current Network Date_Time: " + datetime);
-    Serial.println("Current Network Date_Date: " + datedate);
-    Serial.println("Current Network My Time: " + currDateTimeCSV);
-    Serial.println("Current TimeZone: " + String(timezone));
+    Debugf("End GetTime_TinyGSM:\tNetwork Time:\t%s\n", currDateTimeCSV, true);
+    return true;
   }
 
   void GetGPS() {
@@ -1254,7 +1300,7 @@ void GetNextTime(){
     static String gps_raw = modem.getGPSraw();
     
     DBG("GPS/GNSS Based Location String:", gps_raw);
-    Serial.print("GPS/GNSS Based Location String: ");
+    Serial.print("GPS/GNSS Based Location String:\t");
     Serial.println(gps_raw);
     DBG("Disabling GPS");
     Serial.println("Disabling GPS");
@@ -1322,19 +1368,19 @@ void GetNextTime(){
 ////////////////////////////////////////////////////////////////////////////////
 
 
-/*MISC*/
+/* MISC */
 
   void InitLED(){
     for (int ind = 0; ind <= sizelimit_def ;ind++){
       pinMode(LED_arr[ind], OUTPUT);
       digitalWrite(LED_arr[ind], HIGH);
-      delay(400);
+      delay(150);
     };
-    delay(400);
+    delay(200);
     OffAll();
-    delay(500);
+    delay(200);
     OnAll();
-    delay(500);
+    delay(200);
     bool temp[] = {true ,false ,false, false};
     ToggleLEDState(temp,sizelimit_def+1);
 
@@ -1394,18 +1440,86 @@ void GetNextTime(){
       Serial.printf(main, format);
     }
   }
-  
+
+  void Debugf(const char* main, int format, bool bswitch) {
+    if (bswitch) {
+      Serial.printf(main, format);
+    }
+  }
+
+  void Debugf(const char* main, float format, bool bswitch) {
+    if (bswitch) {
+      Serial.printf(main, format);
+    }
+  }
+
+  void Debugf(const char* main, String format, bool bswitch) {
+    if (bswitch) {
+      Serial.printf(main, format.c_str());
+    }
+  }
+
   void Debug(const char* main, bool bswitch) {
     if (bswitch) {
       Serial.print(main);
     }
   }
-  
+
+  void Debug(int main, bool bswitch) {
+    if (bswitch) {
+      Serial.print(main);
+    }
+  }
+
+  void Debug(float main, bool bswitch) {
+    if (bswitch) {
+      Serial.print(main);
+    }
+  }
+
+  void Debug(String main, bool bswitch) {
+    if (bswitch) {
+      Serial.print(main);
+    }
+  }
+
   void Debugln(const char* main, bool bswitch) {
     if (bswitch) {
       Serial.println(main);
     }
   }
 
+  void Debugln(int main, bool bswitch) {
+    if (bswitch) {
+      Serial.println(main);
+    }
+  }
+
+  void Debugln(float main, bool bswitch) {
+    if (bswitch) {
+      Serial.println(main);
+    }
+  }
+
+  void Debugln(String main, bool bswitch) {
+    if (bswitch) {
+      Serial.println(main);
+    }
+  }
+
+  void print_wakeup_reason() {
+    esp_sleep_wakeup_cause_t wakeup_reason;
+
+    wakeup_reason = esp_sleep_get_wakeup_cause();
+
+    switch (wakeup_reason) {
+      case ESP_SLEEP_WAKEUP_EXT0: Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+      case ESP_SLEEP_WAKEUP_EXT1: Serial.println("Wakeup caused by external signal using RTC_CNTL"); break;
+      case ESP_SLEEP_WAKEUP_TIMER: Serial.println("Wakeup caused by timer"); break;
+      case ESP_SLEEP_WAKEUP_TOUCHPAD: Serial.println("Wakeup caused by touchpad"); break;
+      case ESP_SLEEP_WAKEUP_ULP: Serial.println("Wakeup caused by ULP program"); break;
+      default: Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
+    }
+  }
 ////////////////////////////////////////////////////////////////////////////////
 

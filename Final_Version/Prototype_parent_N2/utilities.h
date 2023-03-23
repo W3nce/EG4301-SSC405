@@ -3,7 +3,7 @@
 
 //Deep Sleep Time/ logging frequency
 #define uS_TO_S_FACTOR      1000000   /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP       30        /* Time ESP32 will go to sleep (in seconds) */
+#define TIME_TO_SLEEP       300        /* Time ESP32 will go to sleep (in seconds) */
 #define READING_BEFORE_SEND 2         /* Number of readings before mass posting */
 
 #define UART_BAUD           115200
@@ -36,24 +36,15 @@
 // Libraries to connect to WiFi and send Readings to the Cloud
 #include <ArduinoHttpClient.h>
 
-void InitLED();
-void OffAll();
-void OnAll();
-void Flash();
-void ToggleLEDState(bool states[],int len);
-void GetLEDState(bool states[],int len);
-void print_wakeup_reason();
-void Debugf(const char* main, const char* format, bool bswitch);
-void Debug(const char* main, bool bswitch);
-void Debugln(const char* main, bool bswitch);
-void print_wakeup_reason();
-void storeReading(const char* filename, int data_count, float curr_Temp, float curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon);
-void storeReading(const char* filename, int data_count, const char* curr_Temp, const char* curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon);
+//Readings Functions
+bool storeReading(const char* filename, int data_count, float curr_Temp, float curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon);
+bool storeReading(const char* filename, int data_count, const char* curr_Temp, const char* curr_Hum, String curr_DateTime, float curr_Lat, float curr_Lon);
 void printReading(const char* savedServer, const char* curr_Temp, const char* curr_Hum);
 void AverageReadings();
 void AddHours( struct tm* date);
 void GetNextTime();
-void sendReadingToCloud();
+
+//Lilygo functions
 void TurnOnSIMModule();
 void TestWorkflow();
 void StartModem();
@@ -62,12 +53,21 @@ bool StartGPRS();
 void SendPostHttpRequest_TinyGSM();
 bool SendAllPostHttpRequest_TinyGSM(int &currdatacount);
 void SendGetHttpRequest_TinyGSM();
-void GetTime_TinyGSM();
+bool GetTime_TinyGSM();
 void GetGPS();
 String sendData(String command, const int timeout, boolean debug);
 String toTimezoneString(float timezone);
 String toTimezoneStringCSV(float timezone);
 void light_sleep(uint32_t sec);
+
+//MISC
+void InitLED();
+void OffAll();
+void OnAll();
+void Flash();
+void ToggleLEDState(bool states[],int len);
+void GetLEDState(bool states[],int len);
+void print_wakeup_reason();
 
 // To calculate leap year
 #define LEAP_YEAR(Y) ((Y > 0) && !(Y % 4) && ((Y % 100) || !(Y % 400)))

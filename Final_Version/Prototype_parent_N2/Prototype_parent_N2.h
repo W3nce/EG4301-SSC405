@@ -5,29 +5,29 @@
 #include <string>
 #include "FS.h"
 #include "SD.h"
-#include "utilities.h"
 #include <GeneralUtils.h>
 
-// Settings Needed
-static bool TurnOnScanResults = true;
-static bool TurnOnNotiResults = true;
-// static bool TurnOnConnResults = true;
+/* Settings Needed */
+static bool TurnOnScanResults = false;
+static bool TurnOnNotiResults = false;
+static bool TurnOnConnResults = false;
+static bool TurnOnSIMResults = false;
 
-//Default Temperature is in Celsius
+/* Default Temperature is in Celsius */
 #define temperatureCelsius
 
-/* UUID's of the service, characteristic that we want to read*/
+/* UUID's of the service, characteristic that we want to read */
 static BLEUUID bmeServiceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");
 
 #ifdef temperatureCelsius
-//Temperature Celsius Characteristic
+/* Temperature Celsius Characteristic */
 static BLEUUID temperatureCharacteristicUUID("cba1d466-344c-4be3-ab3f-189f80dd7518");
 #else
-//Temperature Fahrenheit Characteristic
+/* Temperature Fahrenheit Characteristic */
 static BLEUUID temperatureCharacteristicUUID("f78ebbff-c8b7-4107-93de-889a6a06d408");
 #endif
 
-// Humidity Characteristic
+/* Humidity Characteristic */
 static BLEUUID humidityCharacteristicUUID("ca73b3ba-39f6-4ab3-91ae-186dc9577d99");
 
 #define sizelimit_def 3
@@ -38,6 +38,7 @@ static void temperatureNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharact
 
 static void humidityNotifyCallback(BLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify);
 
+//BLE Related functions
 int strcicmp(char const *a, char const *b);
 void connect_All();
 bool connect_Server(BLEClient * client_test, BLEAdvertisedDevice * advdev_test);
@@ -89,7 +90,6 @@ class ClientServerManager {
     int                       TotalConnectedClientServer = 0;
     float                     SelfTemp;
     float                     SelfHum;
-    std::string               CurrDateTime;
     float                     SelfLat;
     float                     SelfLon;
 
@@ -101,6 +101,6 @@ class ClientServerManager {
     bool                      checkAllReady();
     void                      setTempChar(std::string Server,std::string Value);
     void                      setHumChar(std::string Server,std::string Value);
-    void                      sendReadings(int &currdatacount);
-    void                      storeAllReadings(int &currdatacount);
+    int                       sendReadings(int &currdatacount);
+    bool                      storeAllReadings(int &currdatacount);
 };

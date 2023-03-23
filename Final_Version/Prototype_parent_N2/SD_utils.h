@@ -3,10 +3,14 @@
 #include "pgmspace.h"
 #include <cstdlib>
 #include <string>
+#include "debug_utils.h"
+
 // Libraries for SD card
 #include "FS.h"
 #include "SD.h"
 #include <SPI.h>
+
+static bool TurnOnSDResults = false;
 
 //SD Card Pinout COnfiguration
 #define SD_MISO             19
@@ -31,46 +35,46 @@ bool readVals(File &file , int* v1, float* v2, float* v3, char v4[], int len, fl
 
 //Initialises SD Card
 bool SD_init(int TotalCSV, bool &isSDInit) {
-  Serial.println("@SDUtils::SD_Init: Initialise SD CARD");
+  Debugln("@SDUtils::SD_Init: Initialise SD CARD",true);
   // Initialise micro-SD Card Module
   if (!SD.begin()) {
-    Serial.println(">>End:  Card Mount Failed");
+    Debugln(">>End:  Card Mount Failed",true);
     return false;
   }
   uint8_t cardType = SD.cardType();
 
   if (cardType == CARD_NONE) {
-    Serial.println(">> End: No SD card attached");
+    Debugln(">> End: No SD card attached",true);
     return false;
   }
 
-  Serial.print("\t>> SD Card Type: ");
+  Debug("\t>> SD Card Type: ",true);
   if (cardType == CARD_MMC) {
-    Serial.println("MMC");
+    Debugln("MMC",true);
   } else if (cardType == CARD_SD) {
-    Serial.println("SDSC");
+    Debugln("SDSC",true);
   } else if (cardType == CARD_SDHC) {
-    Serial.println("SDHC");
+    Debugln("SDHC",true);
   } else {
-    Serial.println("UNKNOWN");
+    Debugln("UNKNOWN",true);
   }
 
   uint64_t cardSize = SD.cardSize() / (1024 * 1024);
   Serial.printf("\t>> SD Card Size: %lluMB\n", cardSize);
 
-  Serial.println("\t>> Checking if /data.csv is ready");
+  Debugln("\t>> Checking if /data.csv and /avrg.csv is ready",true);
   checkDataCSV("/data.csv",isSDInit);
   checkDataCSV("/avrg.csv",isSDInit);
 
   char * DataCSVPath[] = {"/data1.csv","/data2.csv","/data3.csv"};
   for (int i = 0 ; i < TotalCSV ; i++){
-    Serial.print("\t>> Checking if ");
-    Serial.print(DataCSVPath[i]);
-    Serial.println(" is ready");
+    Debug("\t>> Checking if ",true);
+    Debug(DataCSVPath[i], true);
+    Debugln(" is ready", true);
     checkDataCSV(DataCSVPath[i], isSDInit);
   }
 
-  Serial.println(">> End: SD Card Initialised");
+  Debugln(">> End: SD Card Initialised",true);
   return true;
 }
 
@@ -78,22 +82,22 @@ void checkDataCSV(const char * fileName, bool &isSDInit){
   // If the data.txt file doesn't exist
   // Create a file on the SD card and write the data labels
   
-  Serial.println("@SD_utils::checkDataCSV: Check if CSV file is ready");
+  Debugln("@SD_utils::checkDataCSV: Check if CSV file is ready",TurnOnSDResults);
   File file = SD.open(fileName);
   if (!file) {
-    Serial.println("\t>> File doesn't exist - Creating file...");
+    Debugln("\t>> File doesn't exist - Creating file...",TurnOnSDResults);
     writeFile(SD, fileName, "Index,Temperature,Humidty,DateTime,Lat,Long\r\n");
   } else {
-    Serial.println("\t>> File already exists");
+    Debugln("\t>> File already exists",TurnOnSDResults);
     if (!isSDInit) {
       //delete and recreate?
       deleteFile(SD, fileName);
       writeFile(SD, fileName, "Index,Temperature,Humidty,DateTime,Lat,Long \r\n");
-      Serial.println("\t>> File Recreated");
+      Debugln("\t>> File Recreated",TurnOnSDResults);
     }
   }
   file.close();  
-  Serial.println(">> End: CSV File Initialised");
+  Debugln(">> End: CSV File Initialised",TurnOnSDResults);
 }
 
 //File Management Commands
@@ -178,19 +182,19 @@ bool readFile(fs::FS &fs, const char *path) {
 }
 //Write/Rewrite a File in given directory
 bool writeFile(fs::FS &fs, const char *path, const char *message) {
-  Serial.printf(">> Writing file: %s\n", path);
+  Debugf(">> Writing file: %s\n", path,TurnOnSDResults);
   bool status = false;
   File file = fs.open(path, FILE_WRITE);
   if (!file) {
-    Serial.println(">> End: Failed to open file for writing");
+    Debugln(">> End: Failed to open file for writing",true);
     file.close();
     return status;
   }
   if (file.print(message)) {
-    Serial.println(">> End: File written");
+    Debugf(">> End: %s File written\n", path, true);
     status = true;
   } else {
-    Serial.println(">> End: Write failed");
+    Debugf(">> End: %s Write failed\n", path, true);
   }
   file.close();
   return status;
@@ -226,31 +230,31 @@ bool renameFile(fs::FS &fs, const char *path1, const char *path2) {
 }
 //Deletes a File in given directory
 bool deleteFile(fs::FS &fs, const char *path) {
-  Serial.printf(">> Deleting file: %s\n", path);
+  Debugf(">> Deleting file: %s\n", path,TurnOnSDResults);
   if (fs.remove(path)) {
-    Serial.println(">> End: File deleted");
+    Debugf(">> End: %s File deleted\n", path, true);
     return true;
   } else {
-    Serial.println(">> End: Delete failed");
+    Debugf(">> End: %s Delete failed\n", path, true);
     return false;
   }
 }
 //Append a line of Reading in the CSV in the given directory
 bool writeDataLine(fs::FS &fs, const char *path, const char *messageLine) {
 
-  Serial.printf("Writing file: %s\n", path);
+  Debugf("Writing file: %s\n", path,TurnOnSDResults);
   bool status = false;
   File file = fs.open(path, FILE_APPEND);
   if (!file) {
     file.close();
-    Serial.println("\t\t>> Failed to open file for appending line");
+    Debugln("\t\t>> Failed to open file for appending line",true);
     return status;
   }
   if (file.println(messageLine)) {
-    Serial.println("\t\t>> Line Appended");
+    Debugln("\t\t>> Line Appended",true);
     status = true;
   } else {
-    Serial.println("\t\t>> Line Append failed");
+    Debugln("\t\t>> Line Append failed",true);
   }
   file.close();
   return status;
