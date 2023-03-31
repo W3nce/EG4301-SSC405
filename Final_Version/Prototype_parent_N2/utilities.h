@@ -2,9 +2,9 @@
 #define DEVICE_NAME "Parent_InitCONN_LED";
 
 //Deep Sleep Time/ logging frequency
-#define uS_TO_S_FACTOR      1000000   /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP       300        /* Time ESP32 will go to sleep (in seconds) */
-#define READING_BEFORE_SEND 2         /* Number of readings before mass posting */
+#define uS_TO_S_FACTOR      1000000ULL    /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP       120           /* Time ESP32 will go to sleep (in seconds) */
+#define READING_BEFORE_SEND 1             /* Number of readings before mass posting */
 
 #define UART_BAUD           115200
 
@@ -54,7 +54,7 @@ void SendPostHttpRequest_TinyGSM();
 bool SendAllPostHttpRequest_TinyGSM(int &currdatacount);
 void SendGetHttpRequest_TinyGSM();
 bool GetTime_TinyGSM();
-void GetGPS();
+bool GetGPS();
 String sendData(String command, const int timeout, boolean debug);
 String toTimezoneString(float timezone);
 String toTimezoneStringCSV(float timezone);
@@ -65,6 +65,7 @@ void InitLED();
 void OffAll();
 void OnAll();
 void Flash();
+void Loading();
 void ToggleLEDState(bool states[],int len);
 void GetLEDState(bool states[],int len);
 void print_wakeup_reason();

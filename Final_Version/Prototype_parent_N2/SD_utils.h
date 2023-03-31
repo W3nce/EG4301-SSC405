@@ -92,7 +92,7 @@ void checkDataCSV(const char * fileName, bool &isSDInit){
     if (!isSDInit) {
       //delete and recreate?
       deleteFile(SD, fileName);
-      writeFile(SD, fileName, "Index,Temperature,Humidty,DateTime,Lat,Long \r\n");
+      writeFile(SD, fileName, "Index,Temperature,Humidity,DateTime,Lat,Long \r\n");
       Debugln("\t>> File Recreated",TurnOnSDResults);
     }
   }
